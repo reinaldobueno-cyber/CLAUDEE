@@ -790,7 +790,7 @@ function buildGerencialProjeto(p) {
   if (!riscos.length) riscos.push('Sem risco crítico');
 
   var linkHtml = p.projeto_link
-    ? '<a class="project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
+    ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
     : '';
 
   return ''+
@@ -838,7 +838,7 @@ function buildRows(list, pfx) {
     var logH = p.acompanhamento ? '<div class="sec-l">Acompanhamento</div><div class="log-box">'+p.acompanhamento+'</div>' : '';
     var obsH = p.obs ? '<div class="sec-l">Observacoes</div><div class="obs-box">'+p.obs+'</div>' : '';
     out += '<div class="prow '+info.rc+'" id="'+id+'" onclick="togRow(\''+id+'\')">';
-    var projetoLinkBtn = p.projeto_link ? '<a class=\"project-link-btn\" href=\"'+p.projeto_link+'\" target=\"_blank\" rel=\"noopener noreferrer\" onclick=\"event.stopPropagation()\">Abrir Projeto</a>' : '';
+    var projetoLinkBtn = p.projeto_link ? '<a class=\"project-link project-link-btn\" href=\"'+p.projeto_link+'\" target=\"_blank\" rel=\"noopener noreferrer\" onclick=\"event.stopPropagation()\">Abrir Projeto</a>' : '';
     out += '<div class="pcell"><div class="pname-row"><div class="pname">'+p.cliente+'</div>'+projetoLinkBtn+'</div><div class="psub">'+(p.consultor||'\u2014')+' - '+p.mes+'</div></div>';
     out += '<div class="pcell"><span class="tag '+info.cls+'">'+sl(p.status)+'</span></div>';
     out += '<div class="pcell">'+tTag+'</div>';
@@ -2026,6 +2026,7 @@ var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-bhGCUB5cIpw_o9
 var PROJECT_LINK_GID = '1979811921';
 var _projectLinkMap = {};
 var _projectLinkPromise = null;
+var _linkDebugCount = 0;
 
 function normalizeClienteKey(v) {
   return String(v || '')
@@ -2036,7 +2037,7 @@ function normalizeClienteKey(v) {
 
 function loadProjectLinksFromSheet() {
   if (_projectLinkPromise) return _projectLinkPromise;
-  var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID + '&tq=' + encodeURIComponent('select A, W');
+  var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID + '&tq=' + encodeURIComponent('select B, W');
   _projectLinkPromise = fetch(url)
     .then(function(r){ return r.text(); })
     .then(function(txt){
@@ -2054,17 +2055,47 @@ function loadProjectLinksFromSheet() {
         if (key) map[key] = link;
       });
       _projectLinkMap = map;
+      var amostraKey = Object.keys(map)[0];
+      if (amostraKey) {
+        console.log('[LINK DEBUG] Planilha W lida (gid '+PROJECT_LINK_GID+'):', {cliente_normalizado: amostraKey, link: map[amostraKey]});
+      } else {
+        console.log('[LINK DEBUG] Nenhum link encontrado na leitura da coluna W (gid '+PROJECT_LINK_GID+').');
+      }
       return map;
     })
     .catch(function(){ return {}; });
   return _projectLinkPromise;
 }
 
+function obterLinkProjeto(row, projeto) {
+  var valor =
+    (projeto && (projeto.projeto_link || projeto.link_projeto || projeto.link || projeto.url_projeto || projeto.projetoLink || projeto['LINK DO PROJETO'] || projeto.col_w || projeto.W)) ||
+    (row && (row.projeto_link || row.link_projeto || row.link || row.url_projeto || row.projetoLink || row['LINK DO PROJETO'] || row.col_w || row.W || row[22])) ||
+    '';
+  return String(valor || '').trim();
+}
+
+function normalizarUrlProjeto(url) {
+  var raw = String(url || '').trim();
+  if (!raw) return '';
+  if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
+  return raw;
+}
+
 function applyProjectLinks(projetos) {
   return (projetos || []).map(function(p){
-    var byParser = normalizeProjetoLink(p);
+    var byParser = obterLinkProjeto(p._row, p);
     var byMap = _projectLinkMap[normalizeClienteKey(p.cliente)] || '';
-    p.projeto_link = byParser || normalizeProjetoLink({link: byMap}) || '';
+    p.projeto_link = normalizarUrlProjeto(byParser || byMap);
+    if (_linkDebugCount < 8 && p.cliente) {
+      console.log('[LINK DEBUG] Projeto final:', {
+        cliente: p.cliente,
+        bruto_row_22: (p._row && p._row[22]) ? p._row[22] : '',
+        bruto_obj: {projeto_link: p.projeto_link, link_projeto: p.link_projeto, link: p.link, url_projeto: p.url_projeto},
+        link_final: p.projeto_link || '(vazio)'
+      });
+      _linkDebugCount++;
+    }
     return p;
   });
 }
@@ -2135,13 +2166,7 @@ function loadAll() {
 
 
 function normalizeProjetoLink(p) {
-  if (!p || typeof p !== 'object') return '';
-  var raw = p.projeto_link || p.link_projeto || p.projetoLink || p.url_projeto || p.link || p['LINK DO PROJETO'] || p.col_w || p.W || '';
-  if (!raw && Array.isArray(p._row) && p._row.length) raw = p._row[22] || p._row[p._row.length - 1];
-  raw = String(raw || '').trim();
-  if (!raw) return '';
-  if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
-  return raw;
+  return normalizarUrlProjeto(obterLinkProjeto(p && p._row, p));
 }
 
 function _finalizarLoad(projetos, isRefresh, motivo) {
