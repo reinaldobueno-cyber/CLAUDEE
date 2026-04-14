@@ -2044,6 +2044,7 @@ var _projectLinkConflicts = [];
 var _projectRowsSemLink = [];
 var MESES_VALIDOS = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 var _abasMensaisLidas = [];
+var PROJECT_LINK_GID_PRIMARY = '1979811921';
 
 function normalizeClienteKey(v) {
   return String(v || '')
@@ -2054,62 +2055,73 @@ function normalizeClienteKey(v) {
 
 function loadProjectLinksFromSheet() {
   if (_projectLinkPromise) return _projectLinkPromise;
-  var wsMetaUrl = 'https://spreadsheets.google.com/feeds/worksheets/' + SHEET_ID + '/public/basic?alt=json';
-  _projectLinkPromise = fetch(wsMetaUrl)
-    .then(function(r){ return r.json(); })
-    .then(function(meta){
+  function parseGvizRows(txt) {
+    var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
+    if (!m) return [];
+    var payload = JSON.parse(m[1]);
+    return (((payload || {}).table || {}).rows || []);
+  }
+  function mergeRowsIntoMap(rows, mesOrigem, map) {
+    (rows || []).forEach(function(row){
+      var c = row && row.c ? row.c : [];
+      var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
+      var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
+      if (!cliente) return;
+      if (!link) {
+        _projectRowsSemLink.push({cliente: cliente, mes_origem: mesOrigem, motivo: 'Coluna W vazia'});
+        return;
+      }
+      var key = normalizeClienteKey(cliente);
+      if (!key) return;
+      if (!map[key]) map[key] = [];
+      var jaExiste = map[key].some(function(x){ return x.link === link && x.mes_origem === mesOrigem; });
+      if (!jaExiste) map[key].push({link: link, mes_origem: mesOrigem});
+    });
+  }
+
+  _projectLinkPromise = Promise.resolve().then(function(){
+    var map = {};
+    _projectLinkConflicts = [];
+    _projectRowsSemLink = [];
+    _abasMensaisLidas = ['JAN'];
+    // Etapa segura: manter JAN funcional primeiro.
+    var janUrl = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID_PRIMARY + '&tq=' + encodeURIComponent('select B, W');
+    return fetch(janUrl).then(function(r){ return r.text(); }).then(function(txt){
+      mergeRowsIntoMap(parseGvizRows(txt), 'JAN', map);
+      return map;
+    });
+  }).then(function(map){
+    // Expansão controlada para demais meses sem quebrar JAN.
+    var wsMetaUrl = 'https://spreadsheets.google.com/feeds/worksheets/' + SHEET_ID + '/public/basic?alt=json';
+    return fetch(wsMetaUrl).then(function(r){ return r.json(); }).then(function(meta){
       var entries = (((meta || {}).feed || {}).entry || []);
       var abas = entries.map(function(e){
         var title = (((e || {}).title || {}).$t || '').trim().toUpperCase();
         var idt = (((e || {}).id || {}).$t || '');
         var gid = (idt.split('/').pop() || '').trim();
         return {title:title, gid:gid};
-      }).filter(function(a){ return a.gid && MESES_VALIDOS.indexOf(a.title) >= 0; });
-      _abasMensaisLidas = abas.map(function(a){ return a.title; });
+      }).filter(function(a){ return a.gid && MESES_VALIDOS.indexOf(a.title) >= 0 && a.gid !== PROJECT_LINK_GID_PRIMARY; });
+      _abasMensaisLidas = ['JAN'].concat(abas.map(function(a){ return a.title; }));
       console.log('[LINK DEBUG] Abas mensais lidas:', _abasMensaisLidas.join(', '));
 
       return Promise.all(abas.map(function(aba){
         var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
         return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
-          var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
-          if (!m) return {aba:aba.title, rows:[]};
-          var payload = JSON.parse(m[1]);
-          var rows = (((payload || {}).table || {}).rows || []);
-          return {aba:aba.title, rows:rows};
-        }).catch(function(){ return {aba:aba.title, rows:[]}; });
-      }));
-    })
-    .then(function(resByAba){
-      var map = {};
-      _projectLinkConflicts = [];
-      _projectRowsSemLink = [];
-      resByAba.forEach(function(pack){
-        (pack.rows || []).forEach(function(row){
-          var c = row && row.c ? row.c : [];
-          var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
-          var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
-          if (!cliente) return;
-          if (!link) {
-            _projectRowsSemLink.push({cliente: cliente, mes_origem: pack.aba, motivo: 'Coluna W vazia'});
-            return;
-          }
-          var key = normalizeClienteKey(cliente);
-          if (!key) return;
-          if (!map[key]) map[key] = [];
-          var jaExiste = map[key].some(function(x){ return x.link === link && x.mes_origem === pack.aba; });
-          if (!jaExiste) map[key].push({link: link, mes_origem: pack.aba});
-        });
-      });
-      Object.keys(map).forEach(function(key){
-        var linksDistintos = Array.from(new Set(map[key].map(function(x){ return x.link; })));
-        if (linksDistintos.length > 1) {
-          _projectLinkConflicts.push({cliente_normalizado: key, links: linksDistintos.join(' | ')});
-        }
-      });
-      _projectLinkMap = map;
+          mergeRowsIntoMap(parseGvizRows(txt), aba.title, map);
+        }).catch(function(){});
+      })).then(function(){ return map; });
+    }).catch(function(){
+      console.log('[LINK DEBUG] Falha ao ler metadados das abas; mantendo somente JAN.');
       return map;
-    })
-    .catch(function(){ return {}; });
+    });
+  }).then(function(map){
+    Object.keys(map).forEach(function(key){
+      var linksDistintos = Array.from(new Set(map[key].map(function(x){ return x.link; })));
+      if (linksDistintos.length > 1) _projectLinkConflicts.push({cliente_normalizado: key, links: linksDistintos.join(' | ')});
+    });
+    _projectLinkMap = map;
+    return map;
+  }).catch(function(){ return _projectLinkMap || {}; });
   return _projectLinkPromise;
 }
 
