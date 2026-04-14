@@ -763,22 +763,32 @@ function buildPrazoCards(p) {
 }
 
 function buildGerencialProjeto(p) {
+  function numFrom(obj, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var v = obj[keys[i]];
+      if (v === null || v === undefined || v === '') continue;
+      var n = Number(String(v).replace(',', '.'));
+      if (!isNaN(n)) return n;
+    }
+    return null;
+  }
   var hoje = new Date();
-  var baseAtualizacao = parseD(p.data_enc) || parseD(p.data_inicio) || parseD(p.data_kick) || parseD(p.data_venda);
-  var diasSemAtualizacao = baseAtualizacao ? Math.max(0, diffD(baseAtualizacao, hoje)) : null;
+  var ultimaAtualizacaoReal = parseD(
+    p.ultima_atualizacao_real || p.data_ultima_atualizacao || p.ultima_atualizacao || p.last_update || ''
+  );
+  var diasSemAtualizacao = ultimaAtualizacaoReal ? Math.max(0, diffD(ultimaAtualizacaoReal, hoje)) : null;
 
-  var cont = (typeof p.diarias_cont === 'number') ? p.diarias_cont : null;
-  var real = (typeof p.diarias_real === 'number') ? p.diarias_real : 0;
-  var tarefasConcluidas = cont ? Math.max(0, Math.floor(real)) : 0;
-  var tarefasPendentes = cont ? Math.max(0, Math.ceil(cont - real)) : 0;
+  var tarefasConcluidas = numFrom(p, ['tarefas_concluidas', 'tasks_concluidas', 'tasks_done', 'tarefas_done']);
+  var tarefasPendentes = numFrom(p, ['tarefas_pendentes', 'tasks_pendentes', 'tasks_todo', 'tarefas_todo']);
+  if (tarefasConcluidas === null) tarefasConcluidas = 0;
+  if (tarefasPendentes === null) tarefasPendentes = 0;
   var tarefasTotais = tarefasConcluidas + tarefasPendentes;
 
-  var marcosTotal = 3;
-  var marcosConcluidos = 0;
-  if (p.kickoff && p.kickoff.toUpperCase().indexOf('SIM') >= 0) marcosConcluidos++;
-  if (p.data_inicio && String(p.data_inicio).trim()) marcosConcluidos++;
-  if (p.data_enc && String(p.data_enc).trim()) marcosConcluidos++;
-  var marcosPendentes = marcosTotal - marcosConcluidos;
+  var marcosConcluidos = numFrom(p, ['marcos_concluidos', 'milestones_done', 'marcos_done']);
+  var marcosPendentes = numFrom(p, ['marcos_pendentes', 'milestones_pending', 'marcos_todo']);
+  if (marcosConcluidos === null) marcosConcluidos = 0;
+  if (marcosPendentes === null) marcosPendentes = 0;
+  var marcosTotal = marcosConcluidos + marcosPendentes;
   var itensConcluidos = tarefasConcluidas + marcosConcluidos;
   var itensTotais = tarefasTotais + marcosTotal;
   var progresso = itensTotais > 0 ? Math.round((itensConcluidos / itensTotais) * 100) : 0;
@@ -789,6 +799,7 @@ function buildGerencialProjeto(p) {
   if (p.kickoff && p.kickoff.toUpperCase() === 'NÃO') riscos.push('Kickoff pendente');
   if (p.diarias_rest !== null && p.diarias_rest < 0) riscos.push('Diárias excedidas');
   if (diasSemAtualizacao !== null && diasSemAtualizacao >= 14) riscos.push('Sem atualização');
+  if (diasSemAtualizacao === null) riscos.push('Sem data de atualização');
   if (!riscos.length) riscos.push('Sem risco crítico');
 
   var linkHtml = p.projeto_link
@@ -813,7 +824,7 @@ function buildGerencialProjeto(p) {
           return '<span class="tag '+cls+'">'+r+'</span>';
         }).join('')+
       '</div>'+
-      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace">Fórmula: (tarefas concl. + marcos concl.) / (tarefas totais + marcos totais)</div>'+
+      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace">Fórmula: (tarefas concl. + marcos concl.) / (tarefas totais + marcos totais) • Última atualização: campo ultima_atualizacao_real/data_ultima_atualizacao</div>'+
     '</div>';
 }
 
@@ -2026,12 +2037,13 @@ function initAlert(){
 var _cbMap={};
 // URL do Google Apps Script - substitua pela sua URL apos implantar
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-bhGCUB5cIpw_o9tWRPVkcOnhdy2Z9rQr3BUc1CbN3gPqtHdOx_uzteAHuHAXm-fy/exec';
-var PROJECT_LINK_GID = '1979811921';
 var _projectLinkMap = {};
 var _projectLinkPromise = null;
 var _linkDebugCount = 0;
 var _projectLinkConflicts = [];
 var _projectRowsSemLink = [];
+var MESES_VALIDOS = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+var _abasMensaisLidas = [];
 
 function normalizeClienteKey(v) {
   return String(v || '')
@@ -2042,40 +2054,59 @@ function normalizeClienteKey(v) {
 
 function loadProjectLinksFromSheet() {
   if (_projectLinkPromise) return _projectLinkPromise;
-  var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID + '&tq=' + encodeURIComponent('select B, W');
-  _projectLinkPromise = fetch(url)
-    .then(function(r){ return r.text(); })
-    .then(function(txt){
-      var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
-      if (!m) return {};
-      var payload = JSON.parse(m[1]);
-      var rows = (((payload || {}).table || {}).rows || []);
+  var wsMetaUrl = 'https://spreadsheets.google.com/feeds/worksheets/' + SHEET_ID + '/public/basic?alt=json';
+  _projectLinkPromise = fetch(wsMetaUrl)
+    .then(function(r){ return r.json(); })
+    .then(function(meta){
+      var entries = (((meta || {}).feed || {}).entry || []);
+      var abas = entries.map(function(e){
+        var title = (((e || {}).title || {}).$t || '').trim().toUpperCase();
+        var idt = (((e || {}).id || {}).$t || '');
+        var gid = (idt.split('/').pop() || '').trim();
+        return {title:title, gid:gid};
+      }).filter(function(a){ return a.gid && MESES_VALIDOS.indexOf(a.title) >= 0; });
+      _abasMensaisLidas = abas.map(function(a){ return a.title; });
+      console.log('[LINK DEBUG] Abas mensais lidas:', _abasMensaisLidas.join(', '));
+
+      return Promise.all(abas.map(function(aba){
+        var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
+        return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
+          var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
+          if (!m) return {aba:aba.title, rows:[]};
+          var payload = JSON.parse(m[1]);
+          var rows = (((payload || {}).table || {}).rows || []);
+          return {aba:aba.title, rows:rows};
+        }).catch(function(){ return {aba:aba.title, rows:[]}; });
+      }));
+    })
+    .then(function(resByAba){
       var map = {};
       _projectLinkConflicts = [];
       _projectRowsSemLink = [];
-      rows.forEach(function(row){
-        var c = row && row.c ? row.c : [];
-        var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
-        var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
-        if (!cliente) return;
-        if (!link) {
-          _projectRowsSemLink.push({cliente: cliente, motivo: 'Coluna W vazia'});
-          return;
+      resByAba.forEach(function(pack){
+        (pack.rows || []).forEach(function(row){
+          var c = row && row.c ? row.c : [];
+          var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
+          var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
+          if (!cliente) return;
+          if (!link) {
+            _projectRowsSemLink.push({cliente: cliente, mes_origem: pack.aba, motivo: 'Coluna W vazia'});
+            return;
+          }
+          var key = normalizeClienteKey(cliente);
+          if (!key) return;
+          if (!map[key]) map[key] = [];
+          var jaExiste = map[key].some(function(x){ return x.link === link && x.mes_origem === pack.aba; });
+          if (!jaExiste) map[key].push({link: link, mes_origem: pack.aba});
+        });
+      });
+      Object.keys(map).forEach(function(key){
+        var linksDistintos = Array.from(new Set(map[key].map(function(x){ return x.link; })));
+        if (linksDistintos.length > 1) {
+          _projectLinkConflicts.push({cliente_normalizado: key, links: linksDistintos.join(' | ')});
         }
-        var key = normalizeClienteKey(cliente);
-        if (!key) return;
-        if (map[key] && map[key] !== link) {
-          _projectLinkConflicts.push({cliente: cliente, link_a: map[key], link_b: link});
-        }
-        map[key] = link;
       });
       _projectLinkMap = map;
-      var amostraKey = Object.keys(map)[0];
-      if (amostraKey) {
-        console.log('[LINK DEBUG] Planilha W lida (gid '+PROJECT_LINK_GID+'):', {cliente_normalizado: amostraKey, link: map[amostraKey]});
-      } else {
-        console.log('[LINK DEBUG] Nenhum link encontrado na leitura da coluna W (gid '+PROJECT_LINK_GID+').');
-      }
       return map;
     })
     .catch(function(){ return {}; });
@@ -2100,7 +2131,10 @@ function normalizarUrlProjeto(url) {
 function applyProjectLinks(projetos) {
   return (projetos || []).map(function(p){
     var byParser = obterLinkProjeto(p._row, p);
-    var byMap = _projectLinkMap[normalizeClienteKey(p.cliente)] || '';
+    var linksCliente = _projectLinkMap[normalizeClienteKey(p.cliente)] || [];
+    var byMes = linksCliente.find(function(x){ return (x.mes_origem || '') === String(p.mes || '').toUpperCase(); });
+    var byMap = (byMes || linksCliente[0] || {}).link || '';
+    p.mes_origem = (byMes || linksCliente[0] || {}).mes_origem || p.mes_origem || '';
     p.projeto_link = normalizarUrlProjeto(byParser || byMap);
     if (_linkDebugCount < 8 && p.cliente) {
       console.log('[LINK DEBUG] Projeto final:', {
@@ -2121,9 +2155,10 @@ function runProjectLinkAudit(projetos) {
   var semLinkDeFato = [];
   lista.forEach(function(p){
     var key = normalizeClienteKey(p.cliente);
-    var linkPlanilha = _projectLinkMap[key] || '';
+    var linksPlanilha = _projectLinkMap[key] || [];
+    var linkPlanilha = linksPlanilha.length ? linksPlanilha[0].link : '';
     var linkFinal = p.projeto_link || '';
-    if (!linkFinal && linkPlanilha) comLinkPlanilhaSemBotao.push({cliente: p.cliente, link_planilha: linkPlanilha});
+    if (!linkFinal && linkPlanilha) comLinkPlanilhaSemBotao.push({cliente: p.cliente, mes: p.mes || '-', links_planilha: linksPlanilha.map(function(x){ return x.mes_origem+': '+x.link; }).join(' | ')});
     if (!linkFinal && !linkPlanilha) semLinkDeFato.push({cliente: p.cliente, status: p.status || '-', consultor: p.consultor || '-'});
   });
 
