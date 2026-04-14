@@ -949,23 +949,17 @@ function debugProjeto(estrutura) {
   console.log('Resumo:', estrutura.resumo);
 }
 function buildGerencialProjeto(p) {
-  try {
-    var resumo = p && p.resumo_projeto && !p.resumo_projeto.indisponivel ? p.resumo_projeto : montarResumoProjeto(p);
-    if (String(p.cliente || '').toUpperCase().indexOf('FASE 08 - CONFINAMENTO') >= 0) {
-      console.log('[FASE DEBUG] Fase 08 - Confinamento');
-      debugProjeto({
-        cliente: resumo.cliente,
-        fases: resumo.fases || [],
-        tasks: resumo.tasks || [],
-        marcos: resumo.marcos || [],
-        resumo: resumo
-      });
-    }
-    return renderResumoProjeto(resumo, p);
-  } catch (error) {
-    console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
-    return renderResumoProjeto({indisponivel: true}, p || {});
-  }
+  var linkHtml = p && p.projeto_link
+    ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
+    : '<span style="color:var(--muted)">Sem link</span>';
+  return ''+
+    '<div style="margin:12px 0 6px">'+
+      '<div class="sec-l">Resumo do Projeto</div>'+
+      '<div class="log-box">Resumo avançado temporariamente desativado para estabilizar a carga do painel.</div>'+
+      '<div class="exp-grid" style="margin-top:8px">'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
+      '</div>'+
+    '</div>';
 }
 
 // ---- Build table rows ----
@@ -2463,22 +2457,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     console.log('[4] Linhas processadas:', baseRaw.length);
     var baseInfo = carregarBaseProjetos(baseRaw);
     console.log('[5] Projetos normalizados:', baseInfo.projetos.length);
-    DATA.projetos = baseInfo.projetos.map(function(projeto){
-      try {
-        var resumo = montarResumoProjeto(projeto);
-        var progressoCalc = calcularProgressoProjeto(resumo);
-        return Object.assign({}, projeto, {
-          resumo_projeto: resumo,
-          progresso_resumo: progressoCalc.progresso
-        });
-      } catch (errorResumo) {
-        console.error('[RESUMO] Erro no projeto', projeto.cliente || '-', errorResumo);
-        return Object.assign({}, projeto, {
-          resumo_projeto: { indisponivel: true },
-          progresso_resumo: null
-        });
-      }
-    });
+    DATA.projetos = baseInfo.projetos;
     console.log('[6] Consolidado final:', DATA.projetos.length);
     console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
     ['JAN','FEV','MAR','ABR'].forEach(function(m){
@@ -2494,22 +2473,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (isRefresh) showToast(projetos.length + ' projetos atualizados \u2714', 'ok');
     } else {
       var baseLocalInfo = carregarBaseProjetos(DATA.projetos);
-      DATA.projetos = baseLocalInfo.projetos.map(function(projeto){
-        try {
-          var resumoLocal = montarResumoProjeto(projeto);
-          var progressoLocal = calcularProgressoProjeto(resumoLocal);
-          return Object.assign({}, projeto, {
-            resumo_projeto: resumoLocal,
-            progresso_resumo: progressoLocal.progresso
-          });
-        } catch (errorResumoLocal) {
-          console.error('[RESUMO] Erro no projeto (base local)', projeto.cliente || '-', errorResumoLocal);
-          return Object.assign({}, projeto, {
-            resumo_projeto: { indisponivel: true },
-            progresso_resumo: null
-          });
-        }
-      });
+      DATA.projetos = baseLocalInfo.projetos;
       if (nd) nd.textContent = 'Falha ao carregar planilha (' + motivo + ')';
       if (motivo === 'timeout') showToast('Planilha demorou — exibindo base local', 'err');
       else if (motivo === 'erro') showToast('Erro de conexão — exibindo base local', 'err');
@@ -2558,22 +2522,7 @@ function inicializarPainel() {
   try {
     console.log('[INIT] Inicialização completa iniciada');
     var baseLocal = carregarBaseProjetos(prepareBaseLocal(DATA.projetos || []));
-    DATA.projetos = baseLocal.projetos.map(function(projeto){
-      try {
-        var resumoLocal = montarResumoProjeto(projeto);
-        var progressoLocal = calcularProgressoProjeto(resumoLocal);
-        return Object.assign({}, projeto, {
-          resumo_projeto: resumoLocal,
-          progresso_resumo: progressoLocal.progresso
-        });
-      } catch (errorResumo) {
-        console.error('[RESUMO] Erro no projeto (init local)', projeto.cliente || '-', errorResumo);
-        return Object.assign({}, projeto, {
-          resumo_projeto: { indisponivel: true },
-          progresso_resumo: null
-        });
-      }
-    });
+    DATA.projetos = baseLocal.projetos;
     console.log('[INIT] Base local pronta:', DATA.projetos.length);
     loadProjectLinksFromSheet().then(function(){
       console.log('[INIT] Links por aba carregados');
