@@ -769,10 +769,9 @@ function buildGerencialProjeto(p) {
 
   var cont = (typeof p.diarias_cont === 'number') ? p.diarias_cont : null;
   var real = (typeof p.diarias_real === 'number') ? p.diarias_real : 0;
-  var progresso = (cont && cont > 0) ? Math.max(0, Math.min(100, Math.round((real / cont) * 100))) : null;
-
-  var tarefasConcluidas = cont ? Math.max(0, Math.floor(real)) : null;
-  var tarefasPendentes = cont ? Math.max(0, Math.ceil(cont - real)) : null;
+  var tarefasConcluidas = cont ? Math.max(0, Math.floor(real)) : 0;
+  var tarefasPendentes = cont ? Math.max(0, Math.ceil(cont - real)) : 0;
+  var tarefasTotais = tarefasConcluidas + tarefasPendentes;
 
   var marcosTotal = 3;
   var marcosConcluidos = 0;
@@ -780,6 +779,9 @@ function buildGerencialProjeto(p) {
   if (p.data_inicio && String(p.data_inicio).trim()) marcosConcluidos++;
   if (p.data_enc && String(p.data_enc).trim()) marcosConcluidos++;
   var marcosPendentes = marcosTotal - marcosConcluidos;
+  var itensConcluidos = tarefasConcluidas + marcosConcluidos;
+  var itensTotais = tarefasTotais + marcosTotal;
+  var progresso = itensTotais > 0 ? Math.round((itensConcluidos / itensTotais) * 100) : 0;
 
   var riscos = [];
   if (!p.consultor || !p.consultor.trim()) riscos.push('Sem dono');
@@ -797,8 +799,8 @@ function buildGerencialProjeto(p) {
     '<div style="margin:12px 0 6px">'+
       '<div class="sec-l">Visão Gerencial</div>'+
       '<div class="exp-grid">'+
-        '<div><div class="ef-l">% Progresso</div><div class="ef-v">'+(progresso!==null?(progresso+'%'):'-')+'</div></div>'+
-        '<div><div class="ef-l">Tarefas</div><div class="ef-v">'+(tarefasConcluidas!==null?(tarefasConcluidas+' concl. / '+tarefasPendentes+' pend.'):'-')+'</div></div>'+
+        '<div><div class="ef-l">% Progresso (itens)</div><div class="ef-v">'+progresso+'%</div></div>'+
+        '<div><div class="ef-l">Tarefas</div><div class="ef-v">'+tarefasConcluidas+' concl. / '+tarefasPendentes+' pend.</div></div>'+
         '<div><div class="ef-l">Marcos</div><div class="ef-v">'+marcosConcluidos+' concl. / '+marcosPendentes+' pend.</div></div>'+
         '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+(diasSemAtualizacao!==null?(diasSemAtualizacao+' dias'):'-')+'</div></div>'+
         '<div><div class="ef-l">Consultor mais recente</div><div class="ef-v">'+(p.consultor||'-')+'</div></div>'+
@@ -811,6 +813,7 @@ function buildGerencialProjeto(p) {
           return '<span class="tag '+cls+'">'+r+'</span>';
         }).join('')+
       '</div>'+
+      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace">Fórmula: (tarefas concl. + marcos concl.) / (tarefas totais + marcos totais)</div>'+
     '</div>';
 }
 
@@ -2027,6 +2030,8 @@ var PROJECT_LINK_GID = '1979811921';
 var _projectLinkMap = {};
 var _projectLinkPromise = null;
 var _linkDebugCount = 0;
+var _projectLinkConflicts = [];
+var _projectRowsSemLink = [];
 
 function normalizeClienteKey(v) {
   return String(v || '')
@@ -2046,13 +2051,23 @@ function loadProjectLinksFromSheet() {
       var payload = JSON.parse(m[1]);
       var rows = (((payload || {}).table || {}).rows || []);
       var map = {};
+      _projectLinkConflicts = [];
+      _projectRowsSemLink = [];
       rows.forEach(function(row){
         var c = row && row.c ? row.c : [];
         var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
         var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
-        if (!cliente || !link) return;
+        if (!cliente) return;
+        if (!link) {
+          _projectRowsSemLink.push({cliente: cliente, motivo: 'Coluna W vazia'});
+          return;
+        }
         var key = normalizeClienteKey(cliente);
-        if (key) map[key] = link;
+        if (!key) return;
+        if (map[key] && map[key] !== link) {
+          _projectLinkConflicts.push({cliente: cliente, link_a: map[key], link_b: link});
+        }
+        map[key] = link;
       });
       _projectLinkMap = map;
       var amostraKey = Object.keys(map)[0];
@@ -2098,6 +2113,30 @@ function applyProjectLinks(projetos) {
     }
     return p;
   });
+}
+
+function runProjectLinkAudit(projetos) {
+  var lista = projetos || [];
+  var comLinkPlanilhaSemBotao = [];
+  var semLinkDeFato = [];
+  lista.forEach(function(p){
+    var key = normalizeClienteKey(p.cliente);
+    var linkPlanilha = _projectLinkMap[key] || '';
+    var linkFinal = p.projeto_link || '';
+    if (!linkFinal && linkPlanilha) comLinkPlanilhaSemBotao.push({cliente: p.cliente, link_planilha: linkPlanilha});
+    if (!linkFinal && !linkPlanilha) semLinkDeFato.push({cliente: p.cliente, status: p.status || '-', consultor: p.consultor || '-'});
+  });
+
+  console.log('[LINK AUDIT] Resumo:', {
+    total_projetos: lista.length,
+    com_link_planilha_sem_botao: comLinkPlanilhaSemBotao.length,
+    sem_link_de_fato: semLinkDeFato.length,
+    conflitos_duplicidade: _projectLinkConflicts.length,
+    linhas_w_vazia: _projectRowsSemLink.length
+  });
+  if (comLinkPlanilhaSemBotao.length) console.table(comLinkPlanilhaSemBotao.slice(0, 100));
+  if (semLinkDeFato.length) console.table(semLinkDeFato.slice(0, 100));
+  if (_projectLinkConflicts.length) console.table(_projectLinkConflicts.slice(0, 100));
 }
 
 function _limparJsonp(cb) {
@@ -2193,6 +2232,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (motivo === 'timeout') showToast('Planilha demorou \u2014 dados locais exibidos', 'err');
     else if (motivo === 'erro') showToast('Erro de conex\u00E3o \u2014 dados locais exibidos', 'err');
   }
+  runProjectLinkAudit(DATA.projetos);
 
   if (isRefresh) {
     var pageAtiva = document.querySelector('.page.on');
@@ -2226,6 +2266,7 @@ window._jaCarregou = false;
 DATA.projetos = applyProjectLinks(DATA.projetos || []);
 loadProjectLinksFromSheet().then(function(){
   DATA.projetos = applyProjectLinks(DATA.projetos || []);
+  runProjectLinkAudit(DATA.projetos);
   if (window._jaCarregou) renderAll();
 });
 // Mostra overlay e busca Sheets \u2014 nao renderiza nada antes
