@@ -854,10 +854,44 @@ function calcularProgressoProjeto(resumo) {
   var progresso = totalItens > 0 ? Math.round((totalConcluidos / totalItens) * 100) : 0;
   return { progresso: progresso, total_itens: totalItens, total_concluidos: totalConcluidos };
 }
+function numeroProjeto(v) {
+  if (v === null || v === undefined || v === '') return null;
+  var n = Number(String(v).replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+function primeiroNumeroProjeto(obj, chaves) {
+  for (var i = 0; i < chaves.length; i++) {
+    var n = numeroProjeto(obj[chaves[i]]);
+    if (n !== null) return n;
+  }
+  return null;
+}
 function montarResumoProjeto(projetoBruto) {
   var bruto = coletarDadosBrutosProjeto(projetoBruto);
   var estrutura = normalizarEstruturaProjeto(bruto);
   var resumo = calcularResumoProjeto(estrutura);
+  // Fallback para projetos sem estrutura de itens (mantém Camada 1 viva e evita card "zerado sem motivo").
+  if ((resumo.tasks_total + resumo.marcos_total) === 0) {
+    var tCon = primeiroNumeroProjeto(projetoBruto, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done']);
+    var tPen = primeiroNumeroProjeto(projetoBruto, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo']);
+    var mCon = primeiroNumeroProjeto(projetoBruto, ['marcos_concluidos','milestones_done','marcos_done']);
+    var mPen = primeiroNumeroProjeto(projetoBruto, ['marcos_pendentes','milestones_pending','marcos_todo']);
+    if (tCon !== null || tPen !== null || mCon !== null || mPen !== null) {
+      console.log('[RESUMO] Fallback numérico aplicado para projeto sem itens estruturados:', projetoBruto.cliente || '-');
+      resumo.tasks_concluidas = tCon !== null ? tCon : 0;
+      resumo.tasks_pendentes = tPen !== null ? tPen : 0;
+      resumo.tasks_total = resumo.tasks_concluidas + resumo.tasks_pendentes;
+      resumo.marcos_concluidos = mCon !== null ? mCon : 0;
+      resumo.marcos_pendentes = mPen !== null ? mPen : 0;
+      resumo.marcos_total = resumo.marcos_concluidos + resumo.marcos_pendentes;
+    }
+  }
+  if (!resumo.fases_total && (projetoBruto.fase_nome || projetoBruto.fase)) {
+    resumo.fases_total = 1;
+    if (!estrutura.fases.length) {
+      estrutura.fases = [{ id: projetoBruto.fase_id || '', nome: projetoBruto.fase_nome || projetoBruto.fase }];
+    }
+  }
   var calc = calcularProgressoProjeto(resumo);
   var resultado = {
     indisponivel: false,
