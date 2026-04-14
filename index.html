@@ -832,7 +832,7 @@ function buildGerencialProjeto(p) {
         '<div><div class="ef-l">Marcos</div><div class="ef-v">'+marcosConcluidos+' concl. / '+marcosPendentes+' pend.</div></div>'+
         '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+(diasSemAtualizacao!==null?(diasSemAtualizacao+' dias'):'-')+'</div></div>'+
         '<div><div class="ef-l">Consultor mais recente</div><div class="ef-v">'+(p.consultor||'-')+'</div></div>'+
-        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+(linkHtml||'-')+'</div></div>'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+(linkHtml||'')+'</div></div>'+
       '</div>'+
       '<div class="sec-l">Top Riscos</div>'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
@@ -2061,7 +2061,13 @@ var _projectLinkConflicts = [];
 var _projectRowsSemLink = [];
 var MESES_VALIDOS = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 var _abasMensaisLidas = [];
-var PROJECT_LINK_GID_PRIMARY = '1979811921';
+var ABAS_GID_FIXAS = {
+  JAN: '1979811921',
+  FEV: '1661005461',
+  MAR: '1789638674',
+  ABR: '1749991249'
+};
+var _resumoLinksPorAba = {};
 
 function normalizeClienteKey(v) {
   return String(v || '')
@@ -2079,15 +2085,18 @@ function loadProjectLinksFromSheet() {
     return (((payload || {}).table || {}).rows || []);
   }
   function mergeRowsIntoMap(rows, mesOrigem, map) {
+    if (!_resumoLinksPorAba[mesOrigem]) _resumoLinksPorAba[mesOrigem] = {projetos: 0, comLink: 0};
     (rows || []).forEach(function(row){
       var c = row && row.c ? row.c : [];
       var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
       var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
       if (!cliente) return;
+      _resumoLinksPorAba[mesOrigem].projetos += 1;
       if (!link) {
         _projectRowsSemLink.push({cliente: cliente, mes_origem: mesOrigem, motivo: 'Coluna W vazia'});
         return;
       }
+      _resumoLinksPorAba[mesOrigem].comLink += 1;
       var key = normalizeClienteKey(cliente);
       if (!key) return;
       if (!map[key]) map[key] = [];
@@ -2100,41 +2109,21 @@ function loadProjectLinksFromSheet() {
     var map = {};
     _projectLinkConflicts = [];
     _projectRowsSemLink = [];
-    _abasMensaisLidas = ['JAN'];
-    // Etapa segura: manter JAN funcional primeiro.
-    var janUrl = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID_PRIMARY + '&tq=' + encodeURIComponent('select B, W');
-    return fetch(janUrl).then(function(r){ return r.text(); }).then(function(txt){
-      var janRows = parseGvizRows(txt);
-      mergeRowsIntoMap(janRows, 'JAN', map);
-      console.log('[LOAD DEBUG] Qtd projetos JAN (linhas lidas):', janRows.length);
-      return map;
-    });
-  }).then(function(map){
-    // Expansão controlada para demais meses sem quebrar JAN.
-    var wsMetaUrl = 'https://spreadsheets.google.com/feeds/worksheets/' + SHEET_ID + '/public/basic?alt=json';
-    return fetch(wsMetaUrl).then(function(r){ return r.json(); }).then(function(meta){
-      var entries = (((meta || {}).feed || {}).entry || []);
-      var abas = entries.map(function(e){
-        var title = (((e || {}).title || {}).$t || '').trim().toUpperCase();
-        var idt = (((e || {}).id || {}).$t || '');
-        var gid = (idt.split('/').pop() || '').trim();
-        return {title:title, gid:gid};
-      }).filter(function(a){ return a.gid && MESES_VALIDOS.indexOf(a.title) >= 0 && a.gid !== PROJECT_LINK_GID_PRIMARY; });
-      _abasMensaisLidas = ['JAN'].concat(abas.map(function(a){ return a.title; }));
-      console.log('[LOAD DEBUG] Abas lidas:', _abasMensaisLidas);
+    _resumoLinksPorAba = {};
+    var abas = Object.keys(ABAS_GID_FIXAS).map(function(m){ return {title:m, gid:ABAS_GID_FIXAS[m]}; });
+    _abasMensaisLidas = abas.map(function(a){ return a.title; });
+    console.log('[LOAD DEBUG] Abas lidas:', _abasMensaisLidas);
 
-      return Promise.all(abas.map(function(aba){
-        var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
-        return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
-          var rows = parseGvizRows(txt);
-          mergeRowsIntoMap(rows, aba.title, map);
-          console.log('[LOAD DEBUG] Qtd projetos '+aba.title+' (linhas lidas):', rows.length);
-        }).catch(function(){});
-      })).then(function(){ return map; });
-    }).catch(function(){
-      console.log('[LINK DEBUG] Falha ao ler metadados das abas; mantendo somente JAN.');
-      return map;
-    });
+    return Promise.all(abas.map(function(aba){
+      var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
+      return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
+        var rows = parseGvizRows(txt);
+        mergeRowsIntoMap(rows, aba.title, map);
+        console.log('[LOAD DEBUG] Qtd projetos '+aba.title+' (linhas lidas):', rows.length);
+      }).catch(function(e){
+        console.error('Erro na aba '+aba.title+':', e);
+      });
+    })).then(function(){ return map; });
   }).then(function(map){
     Object.keys(map).forEach(function(key){
       var linksDistintos = Array.from(new Set(map[key].map(function(x){ return x.link; })));
@@ -2143,6 +2132,10 @@ function loadProjectLinksFromSheet() {
     _projectLinkMap = map;
     var totalLinks = Object.keys(map).reduce(function(acc, k){ return acc + map[k].length; }, 0);
     console.log('[LOAD DEBUG] Qtd total consolidada de links:', totalLinks);
+    Object.keys(_resumoLinksPorAba).forEach(function(m){
+      var r = _resumoLinksPorAba[m];
+      console.log('[LOAD DEBUG] '+m+': '+r.projetos+' projetos / '+r.comLink+' com link');
+    });
     return map;
   }).catch(function(error){
     console.error('Erro ao consolidar dados do painel (links):', error);
@@ -2296,6 +2289,11 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
   if (temDados) {
     DATA.projetos = applyProjectLinks(projetos);
     console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
+    ['JAN','FEV','MAR','ABR'].forEach(function(m){
+      var n = DATA.projetos.filter(function(x){ return String(x.mes || '').toUpperCase() === m; }).length;
+      var cLink = DATA.projetos.filter(function(x){ return String(x.mes || '').toUpperCase() === m && x.projeto_link; }).length;
+      console.log('[LOAD DEBUG] '+m+': '+n+' projetos / '+cLink+' com link no consolidado final');
+    });
     if (DATA.projetos.length) console.log('[LOAD DEBUG] Exemplo projeto consolidado:', DATA.projetos[0]);
     var now = new Date();
     var hora = now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
