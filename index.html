@@ -776,16 +776,33 @@ function buildGerencialProjeto(p) {
   var ultimaAtualizacaoReal = parseD(
     p.ultima_atualizacao_real || p.data_ultima_atualizacao || p.ultima_atualizacao || p.last_update || ''
   );
+  if (!ultimaAtualizacaoReal) {
+    ultimaAtualizacaoReal = parseD(p.data_enc) || parseD(p.data_inicio) || parseD(p.data_kick) || parseD(p.data_venda);
+  }
   var diasSemAtualizacao = ultimaAtualizacaoReal ? Math.max(0, diffD(ultimaAtualizacaoReal, hoje)) : null;
 
   var tarefasConcluidas = numFrom(p, ['tarefas_concluidas', 'tasks_concluidas', 'tasks_done', 'tarefas_done']);
   var tarefasPendentes = numFrom(p, ['tarefas_pendentes', 'tasks_pendentes', 'tasks_todo', 'tarefas_todo']);
+  if (tarefasConcluidas === null || tarefasPendentes === null) {
+    var cont = (typeof p.diarias_cont === 'number') ? p.diarias_cont : null;
+    var real = (typeof p.diarias_real === 'number') ? p.diarias_real : 0;
+    if (tarefasConcluidas === null) tarefasConcluidas = cont ? Math.max(0, Math.floor(real)) : 0;
+    if (tarefasPendentes === null) tarefasPendentes = cont ? Math.max(0, Math.ceil(cont - real)) : 0;
+  }
   if (tarefasConcluidas === null) tarefasConcluidas = 0;
   if (tarefasPendentes === null) tarefasPendentes = 0;
   var tarefasTotais = tarefasConcluidas + tarefasPendentes;
 
   var marcosConcluidos = numFrom(p, ['marcos_concluidos', 'milestones_done', 'marcos_done']);
   var marcosPendentes = numFrom(p, ['marcos_pendentes', 'milestones_pending', 'marcos_todo']);
+  if (marcosConcluidos === null && marcosPendentes === null) {
+    var marcosInferidos = 0;
+    if (p.kickoff && p.kickoff.toUpperCase().indexOf('SIM') >= 0) marcosInferidos++;
+    if (p.data_inicio && String(p.data_inicio).trim()) marcosInferidos++;
+    if (p.data_enc && String(p.data_enc).trim()) marcosInferidos++;
+    marcosConcluidos = marcosInferidos;
+    marcosPendentes = Math.max(0, 3 - marcosInferidos);
+  }
   if (marcosConcluidos === null) marcosConcluidos = 0;
   if (marcosPendentes === null) marcosPendentes = 0;
   var marcosTotal = marcosConcluidos + marcosPendentes;
@@ -2087,7 +2104,9 @@ function loadProjectLinksFromSheet() {
     // Etapa segura: manter JAN funcional primeiro.
     var janUrl = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID_PRIMARY + '&tq=' + encodeURIComponent('select B, W');
     return fetch(janUrl).then(function(r){ return r.text(); }).then(function(txt){
-      mergeRowsIntoMap(parseGvizRows(txt), 'JAN', map);
+      var janRows = parseGvizRows(txt);
+      mergeRowsIntoMap(janRows, 'JAN', map);
+      console.log('[LOAD DEBUG] Qtd projetos JAN (linhas lidas):', janRows.length);
       return map;
     });
   }).then(function(map){
@@ -2102,12 +2121,14 @@ function loadProjectLinksFromSheet() {
         return {title:title, gid:gid};
       }).filter(function(a){ return a.gid && MESES_VALIDOS.indexOf(a.title) >= 0 && a.gid !== PROJECT_LINK_GID_PRIMARY; });
       _abasMensaisLidas = ['JAN'].concat(abas.map(function(a){ return a.title; }));
-      console.log('[LINK DEBUG] Abas mensais lidas:', _abasMensaisLidas.join(', '));
+      console.log('[LOAD DEBUG] Abas lidas:', _abasMensaisLidas);
 
       return Promise.all(abas.map(function(aba){
         var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
         return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
-          mergeRowsIntoMap(parseGvizRows(txt), aba.title, map);
+          var rows = parseGvizRows(txt);
+          mergeRowsIntoMap(rows, aba.title, map);
+          console.log('[LOAD DEBUG] Qtd projetos '+aba.title+' (linhas lidas):', rows.length);
         }).catch(function(){});
       })).then(function(){ return map; });
     }).catch(function(){
@@ -2120,8 +2141,13 @@ function loadProjectLinksFromSheet() {
       if (linksDistintos.length > 1) _projectLinkConflicts.push({cliente_normalizado: key, links: linksDistintos.join(' | ')});
     });
     _projectLinkMap = map;
+    var totalLinks = Object.keys(map).reduce(function(acc, k){ return acc + map[k].length; }, 0);
+    console.log('[LOAD DEBUG] Qtd total consolidada de links:', totalLinks);
     return map;
-  }).catch(function(){ return _projectLinkMap || {}; });
+  }).catch(function(error){
+    console.error('Erro ao consolidar dados do painel (links):', error);
+    return _projectLinkMap || {};
+  });
   return _projectLinkPromise;
 }
 
@@ -2269,6 +2295,8 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
   var temDados = projetos && projetos.length > 0;
   if (temDados) {
     DATA.projetos = applyProjectLinks(projetos);
+    console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
+    if (DATA.projetos.length) console.log('[LOAD DEBUG] Exemplo projeto consolidado:', DATA.projetos[0]);
     var now = new Date();
     var hora = now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     var data = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
