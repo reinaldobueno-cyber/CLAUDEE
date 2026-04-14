@@ -762,6 +762,58 @@ function buildPrazoCards(p) {
   '</div>';
 }
 
+function buildGerencialProjeto(p) {
+  var hoje = new Date();
+  var baseAtualizacao = parseD(p.data_enc) || parseD(p.data_inicio) || parseD(p.data_kick) || parseD(p.data_venda);
+  var diasSemAtualizacao = baseAtualizacao ? Math.max(0, diffD(baseAtualizacao, hoje)) : null;
+
+  var cont = (typeof p.diarias_cont === 'number') ? p.diarias_cont : null;
+  var real = (typeof p.diarias_real === 'number') ? p.diarias_real : 0;
+  var progresso = (cont && cont > 0) ? Math.max(0, Math.min(100, Math.round((real / cont) * 100))) : null;
+
+  var tarefasConcluidas = cont ? Math.max(0, Math.floor(real)) : null;
+  var tarefasPendentes = cont ? Math.max(0, Math.ceil(cont - real)) : null;
+
+  var marcosTotal = 3;
+  var marcosConcluidos = 0;
+  if (p.kickoff && p.kickoff.toUpperCase().indexOf('SIM') >= 0) marcosConcluidos++;
+  if (p.data_inicio && String(p.data_inicio).trim()) marcosConcluidos++;
+  if (p.data_enc && String(p.data_enc).trim()) marcosConcluidos++;
+  var marcosPendentes = marcosTotal - marcosConcluidos;
+
+  var riscos = [];
+  if (!p.consultor || !p.consultor.trim()) riscos.push('Sem dono');
+  if (p.status && p.status.indexOf('Atrasado') >= 0) riscos.push('Atraso');
+  if (p.kickoff && p.kickoff.toUpperCase() === 'NÃO') riscos.push('Kickoff pendente');
+  if (p.diarias_rest !== null && p.diarias_rest < 0) riscos.push('Diárias excedidas');
+  if (diasSemAtualizacao !== null && diasSemAtualizacao >= 14) riscos.push('Sem atualização');
+  if (!riscos.length) riscos.push('Sem risco crítico');
+
+  var linkHtml = p.projeto_link
+    ? '<a class="project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
+    : '';
+
+  return ''+
+    '<div style="margin:12px 0 6px">'+
+      '<div class="sec-l">Visão Gerencial</div>'+
+      '<div class="exp-grid">'+
+        '<div><div class="ef-l">% Progresso</div><div class="ef-v">'+(progresso!==null?(progresso+'%'):'-')+'</div></div>'+
+        '<div><div class="ef-l">Tarefas</div><div class="ef-v">'+(tarefasConcluidas!==null?(tarefasConcluidas+' concl. / '+tarefasPendentes+' pend.'):'-')+'</div></div>'+
+        '<div><div class="ef-l">Marcos</div><div class="ef-v">'+marcosConcluidos+' concl. / '+marcosPendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+(diasSemAtualizacao!==null?(diasSemAtualizacao+' dias'):'-')+'</div></div>'+
+        '<div><div class="ef-l">Consultor mais recente</div><div class="ef-v">'+(p.consultor||'-')+'</div></div>'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+(linkHtml||'-')+'</div></div>'+
+      '</div>'+
+      '<div class="sec-l">Top Riscos</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+        riscos.slice(0,3).map(function(r){
+          var cls = r === 'Sem risco crítico' ? 'tag-g' : 'tag-r';
+          return '<span class="tag '+cls+'">'+r+'</span>';
+        }).join('')+
+      '</div>'+
+    '</div>';
+}
+
 // ---- Build table rows ----
 function buildRows(list, pfx) {
   if (!list || !list.length) return '<div class="empty">Nenhum projeto encontrado</div>';
@@ -782,6 +834,7 @@ function buildRows(list, pfx) {
       barHtml='<div class="dbar"><div class="dbar-info'+(over?' exc':'')+'"><span>'+(over?'EXCEDIDO - ':'')+fn(real)+' de '+fn(cont)+' diarias</span><span>'+fn(p.diarias_rest)+' restantes</span></div><div class="dbar-bg"><div class="dbar-fill" style="width:'+w+'%;background:'+fc+'"></div></div></div>';
     }
     var prazoH = buildPrazoCards(p);
+    var gerH = buildGerencialProjeto(p);
     var logH = p.acompanhamento ? '<div class="sec-l">Acompanhamento</div><div class="log-box">'+p.acompanhamento+'</div>' : '';
     var obsH = p.obs ? '<div class="sec-l">Observacoes</div><div class="obs-box">'+p.obs+'</div>' : '';
     out += '<div class="prow '+info.rc+'" id="'+id+'" onclick="togRow(\''+id+'\')">';
@@ -801,7 +854,7 @@ function buildRows(list, pfx) {
     out += '<div><div class="ef-l">Inicio Implant.</div><div class="ef-v">'+fd(p.data_inicio)+'</div></div>';
     out += '<div><div class="ef-l">Data Venda</div><div class="ef-v">'+fd(p.data_venda)+'</div></div>';
     out += '<div><div class="ef-l">KO Realiz.?</div><div class="ef-v">'+(p.kickoff||'-')+'</div></div>';
-    out += '</div>'+logH+obsH+'</div></div>';
+    out += '</div>'+gerH+logH+obsH+'</div></div>';
   }
   return out;
 }
@@ -2038,8 +2091,8 @@ function loadAll() {
 
 function normalizeProjetoLink(p) {
   if (!p || typeof p !== 'object') return '';
-  var raw = p.projeto_link || p.link_projeto || p.projetoLink || p.url_projeto || p.link || '';
-  if (!raw && Array.isArray(p._row) && p._row.length) raw = p._row[p._row.length - 1];
+  var raw = p.projeto_link || p.link_projeto || p.projetoLink || p.url_projeto || p.link || p.col_w || p.W || '';
+  if (!raw && Array.isArray(p._row) && p._row.length) raw = p._row[22] || p._row[p._row.length - 1];
   raw = String(raw || '').trim();
   if (!raw) return '';
   if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
