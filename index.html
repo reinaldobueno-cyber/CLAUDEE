@@ -2023,6 +2023,51 @@ function initAlert(){
 var _cbMap={};
 // URL do Google Apps Script - substitua pela sua URL apos implantar
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-bhGCUB5cIpw_o9tWRPVkcOnhdy2Z9rQr3BUc1CbN3gPqtHdOx_uzteAHuHAXm-fy/exec';
+var PROJECT_LINK_GID = '1979811921';
+var _projectLinkMap = {};
+var _projectLinkPromise = null;
+
+function normalizeClienteKey(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function loadProjectLinksFromSheet() {
+  if (_projectLinkPromise) return _projectLinkPromise;
+  var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID + '&tq=' + encodeURIComponent('select A, W');
+  _projectLinkPromise = fetch(url)
+    .then(function(r){ return r.text(); })
+    .then(function(txt){
+      var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
+      if (!m) return {};
+      var payload = JSON.parse(m[1]);
+      var rows = (((payload || {}).table || {}).rows || []);
+      var map = {};
+      rows.forEach(function(row){
+        var c = row && row.c ? row.c : [];
+        var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
+        var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
+        if (!cliente || !link) return;
+        var key = normalizeClienteKey(cliente);
+        if (key) map[key] = link;
+      });
+      _projectLinkMap = map;
+      return map;
+    })
+    .catch(function(){ return {}; });
+  return _projectLinkPromise;
+}
+
+function applyProjectLinks(projetos) {
+  return (projetos || []).map(function(p){
+    var byParser = normalizeProjetoLink(p);
+    var byMap = _projectLinkMap[normalizeClienteKey(p.cliente)] || '';
+    p.projeto_link = byParser || normalizeProjetoLink({link: byMap}) || '';
+    return p;
+  });
+}
 
 function _limparJsonp(cb) {
   try { delete window[cb]; } catch(e){}
@@ -2091,7 +2136,7 @@ function loadAll() {
 
 function normalizeProjetoLink(p) {
   if (!p || typeof p !== 'object') return '';
-  var raw = p.projeto_link || p.link_projeto || p.projetoLink || p.url_projeto || p.link || p.col_w || p.W || '';
+  var raw = p.projeto_link || p.link_projeto || p.projetoLink || p.url_projeto || p.link || p['LINK DO PROJETO'] || p.col_w || p.W || '';
   if (!raw && Array.isArray(p._row) && p._row.length) raw = p._row[22] || p._row[p._row.length - 1];
   raw = String(raw || '').trim();
   if (!raw) return '';
@@ -2112,10 +2157,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
 
   var temDados = projetos && projetos.length > 0;
   if (temDados) {
-    DATA.projetos = projetos.map(function(p){
-      p.projeto_link = normalizeProjetoLink(p);
-      return p;
-    });
+    DATA.projetos = applyProjectLinks(projetos);
     var now = new Date();
     var hora = now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     var data = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -2156,7 +2198,11 @@ var MESES=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DE
 window._logModo = window._logModo || 'geral';
 window._logPeriodo = window._logPeriodo || '30';
 window._jaCarregou = false;
-DATA.projetos = (DATA.projetos || []).map(function(p){ p.projeto_link = normalizeProjetoLink(p); return p; });
+DATA.projetos = applyProjectLinks(DATA.projetos || []);
+loadProjectLinksFromSheet().then(function(){
+  DATA.projetos = applyProjectLinks(DATA.projetos || []);
+  if (window._jaCarregou) renderAll();
+});
 // Mostra overlay e busca Sheets \u2014 nao renderiza nada antes
 loadAll();
 </script>
