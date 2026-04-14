@@ -948,14 +948,34 @@ function debugProjeto(estrutura) {
   console.log('Marcos:', estrutura.marcos.map(function(m){ return {nome:m.nome, concluido:m.concluida, origem:m.origem}; }));
   console.log('Resumo:', estrutura.resumo);
 }
+function temResumoEstrutural(p) {
+  if (!p || typeof p !== 'object') return false;
+  if (Array.isArray(p.itens_fase) && p.itens_fase.length) return true;
+  if (Array.isArray(p.fase_itens) && p.fase_itens.length) return true;
+  if (Array.isArray(p.items_fase) && p.items_fase.length) return true;
+  if (Array.isArray(p.tasks) && p.tasks.length) return true;
+  if (Array.isArray(p.clickup_items) && p.clickup_items.length) return true;
+  var tCon = primeiroNumeroProjeto(p, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done']);
+  var tPen = primeiroNumeroProjeto(p, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo']);
+  var mCon = primeiroNumeroProjeto(p, ['marcos_concluidos','milestones_done','marcos_done']);
+  var mPen = primeiroNumeroProjeto(p, ['marcos_pendentes','milestones_pending','marcos_todo']);
+  return (tCon !== null || tPen !== null || mCon !== null || mPen !== null);
+}
 function buildGerencialProjeto(p) {
+  if (temResumoEstrutural(p)) {
+    try {
+      return renderResumoProjeto(montarResumoProjeto(p), p);
+    } catch (error) {
+      console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
+    }
+  }
   var linkHtml = p && p.projeto_link
     ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
     : '<span style="color:var(--muted)">Sem link</span>';
   return ''+
     '<div style="margin:12px 0 6px">'+
       '<div class="sec-l">Resumo do Projeto</div>'+
-      '<div class="log-box">Resumo avançado temporariamente desativado para estabilizar a carga do painel.</div>'+
+      '<div class="log-box">Resumo indisponível para este projeto (origem sem estrutura de fases/tasks/marcos).</div>'+
       '<div class="exp-grid" style="margin-top:8px">'+
         '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
       '</div>'+
