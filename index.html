@@ -2204,7 +2204,7 @@ function normalizarUrlProjeto(url) {
 }
 
 function applyProjectLinks(projetos) {
-  return (projetos || []).map(function(p){
+  return (projetos || []).filter(function(p){ return p && typeof p === 'object'; }).map(function(p){
     var byParser = obterLinkProjeto(p._row, p);
     var linksCliente = _projectLinkMap[normalizeClienteKey(p.cliente)] || [];
     var byMes = linksCliente.find(function(x){ return (x.mes_origem || '') === String(p.mes || '').toUpperCase(); });
@@ -2220,6 +2220,19 @@ function applyProjectLinks(projetos) {
       });
       _linkDebugCount++;
     }
+    return p;
+  });
+}
+
+function prepararProjetosBase(projetos) {
+  var lista = Array.isArray(projetos) ? projetos : [];
+  return lista.filter(function(p){ return p && typeof p === 'object'; }).map(function(p){
+    p.cliente = String(p.cliente || '').trim();
+    p.consultor = String(p.consultor || '').trim();
+    p.mes = String(p.mes || '').toUpperCase().trim();
+    p.status = String(p.status || '').trim();
+    p.tipo = String(p.tipo || '').trim();
+    p.formato = String(p.formato || '').trim();
     return p;
   });
 }
@@ -2256,6 +2269,7 @@ function _limparJsonp(cb) {
 }
 
 function loadAll() {
+  console.log('[INIT] Iniciando carga principal do painel');
   var nd = document.getElementById('nav-date');
   var lo = document.getElementById('load-overlay');
   var lt = document.getElementById('load-text');
@@ -2272,45 +2286,61 @@ function loadAll() {
     if (nd) nd.textContent = 'Atualizando...';
   }
 
-  if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('AK') < 0) {
-    _finalizarLoad([], isRefresh, 'local');
-    return;
-  }
-
-  var done  = false;
-  var cbName = '_cb' + Date.now();
-
-  // Timeout: 12s
-  var timer = setTimeout(function() {
-    if (done) return;
-    done = true;
-    _limparJsonp(cbName);
-    _finalizarLoad([], isRefresh, 'timeout');
-  }, 12000);
-
-  window[cbName] = function(resp) {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _limparJsonp(cbName);
-    if (resp && resp.projetos && resp.projetos.length > 0) {
-      _finalizarLoad(resp.projetos, isRefresh, 'ok');
-    } else {
-      _finalizarLoad([], isRefresh, 'vazio');
+  try {
+    if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('AK') < 0) {
+      console.warn('[INIT] URL do Apps Script ausente/inválida. Usando base local.');
+      _finalizarLoad([], isRefresh, 'local');
+      return;
     }
-  };
 
-  var s = document.createElement('script');
-  s.id  = '_jsonp_' + cbName;
-  s.src = APPS_SCRIPT_URL + '?mes=ALL&callback=' + cbName;
-  s.onerror = function() {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _limparJsonp(cbName);
-    _finalizarLoad([], isRefresh, 'erro');
-  };
-  document.head.appendChild(s);
+    console.log('[1] Buscando planilha/origem via Apps Script');
+    var done  = false;
+    var cbName = '_cb' + Date.now();
+
+    // Timeout: 12s
+    var timer = setTimeout(function() {
+      if (done) return;
+      done = true;
+      _limparJsonp(cbName);
+      console.error('[INIT] Timeout na carga principal (12s)');
+      _finalizarLoad([], isRefresh, 'timeout');
+    }, 12000);
+
+    window[cbName] = function(resp) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      _limparJsonp(cbName);
+      var qtd = resp && Array.isArray(resp.projetos) ? resp.projetos.length : 0;
+      console.log('[2] Resposta Apps Script recebida. Projetos brutos:', qtd);
+      if (resp && resp.projetos && resp.projetos.length > 0) {
+        _finalizarLoad(resp.projetos, isRefresh, 'ok');
+      } else {
+        _finalizarLoad([], isRefresh, 'vazio');
+      }
+    };
+
+    var s = document.createElement('script');
+    s.id  = '_jsonp_' + cbName;
+    s.src = APPS_SCRIPT_URL + '?mes=ALL&callback=' + cbName;
+    s.onerror = function() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      _limparJsonp(cbName);
+      console.error('[INIT] Erro de rede/JSONP ao carregar Apps Script');
+      _finalizarLoad([], isRefresh, 'erro');
+    };
+    document.head.appendChild(s);
+  } catch (error) {
+    console.error('[INIT] Erro inesperado na inicialização da carga principal:', error);
+    _finalizarLoad([], isRefresh, 'init_error');
+  }
+}
+
+
+function normalizeProjetoLink(p) {
+  return normalizarUrlProjeto(obterLinkProjeto(p && p._row, p));
 }
 
 
@@ -2319,6 +2349,7 @@ function normalizeProjetoLink(p) {
 }
 
 function _finalizarLoad(projetos, isRefresh, motivo) {
+  console.log('[3] Finalizando carga. Motivo:', motivo);
   var nd = document.getElementById('nav-date');
   var lo = document.getElementById('load-overlay');
   var rb = document.getElementById('refresh-bar');
@@ -2329,9 +2360,14 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     setTimeout(function(){ rb.style.display='none'; rb.style.transform='scaleX(0)'; }, 500);
   }
 
-  var temDados = projetos && projetos.length > 0;
-  if (temDados) {
-    DATA.projetos = applyProjectLinks(projetos);
+  try {
+    var base = prepararProjetosBase(projetos);
+    var temDados = base.length > 0;
+    if (temDados) {
+    console.log('[4] Linhas processadas:', base.length);
+    DATA.projetos = applyProjectLinks(base);
+    console.log('[5] Projetos normalizados:', DATA.projetos.length);
+    console.log('[6] Consolidado final:', DATA.projetos.length);
     console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
     ['JAN','FEV','MAR','ABR'].forEach(function(m){
       var n = DATA.projetos.filter(function(x){ return String(x.mes || '').toUpperCase() === m; }).length;
@@ -2344,10 +2380,20 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     var data = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
     if (nd) nd.textContent = 'Planilha: ' + data + ' ' + hora;
     if (isRefresh) showToast(projetos.length + ' projetos atualizados \u2714', 'ok');
-  } else {
-    if (nd) nd.textContent = 'Dados locais (' + DATA.projetos.length + ' proj.)';
-    if (motivo === 'timeout') showToast('Planilha demorou \u2014 dados locais exibidos', 'err');
-    else if (motivo === 'erro') showToast('Erro de conex\u00E3o \u2014 dados locais exibidos', 'err');
+    } else {
+      DATA.projetos = prepararProjetosBase(DATA.projetos);
+      if (nd) nd.textContent = 'Falha ao carregar planilha (' + motivo + ')';
+      if (motivo === 'timeout') showToast('Planilha demorou — exibindo base local', 'err');
+      else if (motivo === 'erro') showToast('Erro de conexão — exibindo base local', 'err');
+      else if (motivo === 'vazio') showToast('Planilha respondeu sem projetos', 'err');
+      else if (motivo === 'init_error') showToast('Falha na inicialização da carga', 'err');
+    }
+    runProjectLinkAudit(DATA.projetos);
+  } catch (error) {
+    console.error('[INIT] Erro ao consolidar/renderizar carga principal:', error);
+    DATA.projetos = prepararProjetosBase(DATA.projetos);
+    if (nd) nd.textContent = 'Erro ao consolidar dados';
+    showToast('Erro ao consolidar dados — base local preservada', 'err');
   }
   runProjectLinkAudit(DATA.projetos);
 
@@ -2380,14 +2426,36 @@ var MESES=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DE
 window._logModo = window._logModo || 'geral';
 window._logPeriodo = window._logPeriodo || '30';
 window._jaCarregou = false;
-DATA.projetos = applyProjectLinks(DATA.projetos || []);
-loadProjectLinksFromSheet().then(function(){
-  DATA.projetos = applyProjectLinks(DATA.projetos || []);
-  runProjectLinkAudit(DATA.projetos);
-  if (window._jaCarregou) renderAll();
-});
-// Mostra overlay e busca Sheets \u2014 nao renderiza nada antes
-loadAll();
+function inicializarPainel() {
+  try {
+    console.log('[INIT] Inicialização completa iniciada');
+    DATA.projetos = prepareBaseLocal(DATA.projetos || []);
+    DATA.projetos = applyProjectLinks(DATA.projetos || []);
+    console.log('[INIT] Base local pronta:', DATA.projetos.length);
+    loadProjectLinksFromSheet().then(function(){
+      console.log('[INIT] Links por aba carregados');
+      DATA.projetos = applyProjectLinks(DATA.projetos || []);
+      runProjectLinkAudit(DATA.projetos);
+      if (window._jaCarregou) renderAll();
+    }).catch(function(err){
+      console.error('[INIT] Falha ao carregar links por aba:', err);
+    });
+    loadAll();
+  } catch (error) {
+    console.error('[INIT] Erro ao inicializar painel:', error);
+    var nd = document.getElementById('nav-date');
+    var lo = document.getElementById('load-overlay');
+    var lt = document.getElementById('load-text');
+    if (nd) nd.textContent = 'Erro ao carregar';
+    if (lt) lt.textContent = 'Erro ao carregar dados do painel';
+    if (lo) lo.style.display = 'flex';
+  }
+}
+function prepareBaseLocal(projetos) {
+  return prepararProjetosBase(projetos);
+}
+// Mostra overlay e busca Sheets — não renderiza nada antes
+inicializarPainel();
 </script>
 </body>
 </html>
