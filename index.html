@@ -71,6 +71,9 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 .pcell{display:flex;align-items:center;padding:10px 6px 10px 0;}
 .pcell:first-child{flex-direction:column;align-items:flex-start;gap:2px;}
 .pname{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.pname-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
+.project-link-btn{display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;border-radius:5px;border:1px solid var(--green);background:var(--green-s);color:var(--green);font-size:10px;font-weight:700;text-decoration:none;flex-shrink:0;}
+.project-link-btn:hover{background:var(--green);color:#fff;}
 .psub{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
 .chev{color:var(--muted);font-size:14px;justify-content:flex-end;transition:transform .2s;}
 .prow.open .chev{transform:rotate(90deg);}
@@ -238,23 +241,6 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 .page.on{display:block;}
 
 
-/* ── ClickUp Tab ── */
-.ck-card{background:var(--surf);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:10px}
-.ck-head{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer}
-.ck-head:hover{background:var(--surf2)}
-.ck-nome{font-size:13px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ck-badge{font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;flex-shrink:0;white-space:nowrap}
-.ck-badge.crit{background:#fff5f5;color:#9b2c2c}
-.ck-badge.warn{background:#fffaf0;color:#9c4221}
-.ck-badge.ok{background:#f0fff4;color:#276749}
-.ck-body{display:none}
-.ck-body.on{display:block}
-.ck-sec{padding:12px 16px;border-top:1px solid var(--border)}
-.ck-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.ck-stat{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
-.ck-stat-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px}
-.ck-stat-v{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
 </style>
 </head>
 <body>
@@ -290,7 +276,6 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 <button class="snb" onclick="goTab('log',this)"><span class="snb-icon">&#128506;</span><span class="snb-label">Log&iacute;stica</span><span class="snb-badge" id="n-log">0</span></button>
 <button class="snb" onclick="goTab('praz',this)"><span class="snb-icon">&#8987;</span><span class="snb-label">Prazos</span><span class="snb-badge" id="n-praz">0</span></button>
 <button class="snb" onclick="goTab('alert',this)"><span class="snb-icon">&#128680;</span><span class="snb-label">Alertas</span><span class="snb-badge" id="n-alert">0</span></button>
-    <button class="snb" onclick="goTab('ck',this)"><span class="snb-icon">&#128279;</span><span class="snb-label">ClickUp</span><span class="snb-badge" id="n-ck"></span></button>
 </div>
 <div class="main-content">
 <div class="page on" id="page-dash"><div id="dash-content"></div></div>
@@ -350,7 +335,6 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
   </div>
 </div>
 <div class="page" id="page-exec"><div id="exec-content" style="padding:4px 0"></div></div>
-<div class="page" id="page-ck"><div class="kpis" id="kpis-ck"></div><div id="ck-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center"></div><div id="ck-content"></div></div>
 
 <div class="toast" id="toast">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -438,7 +422,6 @@ function goTab(id, btn) {
     });
   }
   _openId = null;
-  if (id === 'ck') { initCk(); }
   if (id === 'log') {
     setTimeout(function(){
       try {
@@ -779,6 +762,89 @@ function buildPrazoCards(p) {
   '</div>';
 }
 
+function buildGerencialProjeto(p) {
+  function numFrom(obj, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var v = obj[keys[i]];
+      if (v === null || v === undefined || v === '') continue;
+      var n = Number(String(v).replace(',', '.'));
+      if (!isNaN(n)) return n;
+    }
+    return null;
+  }
+  var hoje = new Date();
+  var ultimaAtualizacaoReal = parseD(
+    p.ultima_atualizacao_real || p.data_ultima_atualizacao || p.ultima_atualizacao || p.last_update || ''
+  );
+  if (!ultimaAtualizacaoReal) {
+    ultimaAtualizacaoReal = parseD(p.data_enc) || parseD(p.data_inicio) || parseD(p.data_kick) || parseD(p.data_venda);
+  }
+  var diasSemAtualizacao = ultimaAtualizacaoReal ? Math.max(0, diffD(ultimaAtualizacaoReal, hoje)) : null;
+
+  var tarefasConcluidas = numFrom(p, ['tarefas_concluidas', 'tasks_concluidas', 'tasks_done', 'tarefas_done']);
+  var tarefasPendentes = numFrom(p, ['tarefas_pendentes', 'tasks_pendentes', 'tasks_todo', 'tarefas_todo']);
+  if (tarefasConcluidas === null || tarefasPendentes === null) {
+    var cont = (typeof p.diarias_cont === 'number') ? p.diarias_cont : null;
+    var real = (typeof p.diarias_real === 'number') ? p.diarias_real : 0;
+    if (tarefasConcluidas === null) tarefasConcluidas = cont ? Math.max(0, Math.floor(real)) : 0;
+    if (tarefasPendentes === null) tarefasPendentes = cont ? Math.max(0, Math.ceil(cont - real)) : 0;
+  }
+  if (tarefasConcluidas === null) tarefasConcluidas = 0;
+  if (tarefasPendentes === null) tarefasPendentes = 0;
+  var tarefasTotais = tarefasConcluidas + tarefasPendentes;
+
+  var marcosConcluidos = numFrom(p, ['marcos_concluidos', 'milestones_done', 'marcos_done']);
+  var marcosPendentes = numFrom(p, ['marcos_pendentes', 'milestones_pending', 'marcos_todo']);
+  if (marcosConcluidos === null && marcosPendentes === null) {
+    var marcosInferidos = 0;
+    if (p.kickoff && p.kickoff.toUpperCase().indexOf('SIM') >= 0) marcosInferidos++;
+    if (p.data_inicio && String(p.data_inicio).trim()) marcosInferidos++;
+    if (p.data_enc && String(p.data_enc).trim()) marcosInferidos++;
+    marcosConcluidos = marcosInferidos;
+    marcosPendentes = Math.max(0, 3 - marcosInferidos);
+  }
+  if (marcosConcluidos === null) marcosConcluidos = 0;
+  if (marcosPendentes === null) marcosPendentes = 0;
+  var marcosTotal = marcosConcluidos + marcosPendentes;
+  var itensConcluidos = tarefasConcluidas + marcosConcluidos;
+  var itensTotais = tarefasTotais + marcosTotal;
+  var progresso = itensTotais > 0 ? Math.round((itensConcluidos / itensTotais) * 100) : 0;
+
+  var riscos = [];
+  if (!p.consultor || !p.consultor.trim()) riscos.push('Sem dono');
+  if (p.status && p.status.indexOf('Atrasado') >= 0) riscos.push('Atraso');
+  if (p.kickoff && p.kickoff.toUpperCase() === 'NÃO') riscos.push('Kickoff pendente');
+  if (p.diarias_rest !== null && p.diarias_rest < 0) riscos.push('Diárias excedidas');
+  if (diasSemAtualizacao !== null && diasSemAtualizacao >= 14) riscos.push('Sem atualização');
+  if (diasSemAtualizacao === null) riscos.push('Sem data de atualização');
+  if (!riscos.length) riscos.push('Sem risco crítico');
+
+  var linkHtml = p.projeto_link
+    ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
+    : '';
+
+  return ''+
+    '<div style="margin:12px 0 6px">'+
+      '<div class="sec-l">Visão Gerencial</div>'+
+      '<div class="exp-grid">'+
+        '<div><div class="ef-l">% Progresso (itens)</div><div class="ef-v">'+progresso+'%</div></div>'+
+        '<div><div class="ef-l">Tarefas</div><div class="ef-v">'+tarefasConcluidas+' concl. / '+tarefasPendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Marcos</div><div class="ef-v">'+marcosConcluidos+' concl. / '+marcosPendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+(diasSemAtualizacao!==null?(diasSemAtualizacao+' dias'):'-')+'</div></div>'+
+        '<div><div class="ef-l">Consultor mais recente</div><div class="ef-v">'+(p.consultor||'-')+'</div></div>'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+(linkHtml||'-')+'</div></div>'+
+      '</div>'+
+      '<div class="sec-l">Top Riscos</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+        riscos.slice(0,3).map(function(r){
+          var cls = r === 'Sem risco crítico' ? 'tag-g' : 'tag-r';
+          return '<span class="tag '+cls+'">'+r+'</span>';
+        }).join('')+
+      '</div>'+
+      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace">Fórmula: (tarefas concl. + marcos concl.) / (tarefas totais + marcos totais) • Última atualização: campo ultima_atualizacao_real/data_ultima_atualizacao</div>'+
+    '</div>';
+}
+
 // ---- Build table rows ----
 function buildRows(list, pfx) {
   if (!list || !list.length) return '<div class="empty">Nenhum projeto encontrado</div>';
@@ -799,10 +865,12 @@ function buildRows(list, pfx) {
       barHtml='<div class="dbar"><div class="dbar-info'+(over?' exc':'')+'"><span>'+(over?'EXCEDIDO - ':'')+fn(real)+' de '+fn(cont)+' diarias</span><span>'+fn(p.diarias_rest)+' restantes</span></div><div class="dbar-bg"><div class="dbar-fill" style="width:'+w+'%;background:'+fc+'"></div></div></div>';
     }
     var prazoH = buildPrazoCards(p);
+    var gerH = buildGerencialProjeto(p);
     var logH = p.acompanhamento ? '<div class="sec-l">Acompanhamento</div><div class="log-box">'+p.acompanhamento+'</div>' : '';
     var obsH = p.obs ? '<div class="sec-l">Observacoes</div><div class="obs-box">'+p.obs+'</div>' : '';
     out += '<div class="prow '+info.rc+'" id="'+id+'" onclick="togRow(\''+id+'\')">';
-    out += '<div class="pcell"><div class="pname">'+p.cliente+'</div><div class="psub">'+(p.consultor||'\u2014')+' - '+p.mes+'</div></div>';
+    var projetoLinkBtn = p.projeto_link ? '<a class=\"project-link project-link-btn\" href=\"'+p.projeto_link+'\" target=\"_blank\" rel=\"noopener noreferrer\" onclick=\"event.stopPropagation()\">Abrir Projeto</a>' : '';
+    out += '<div class="pcell"><div class="pname-row"><div class="pname">'+p.cliente+'</div>'+projetoLinkBtn+'</div><div class="psub">'+(p.consultor||'\u2014')+' - '+p.mes+'</div></div>';
     out += '<div class="pcell"><span class="tag '+info.cls+'">'+sl(p.status)+'</span></div>';
     out += '<div class="pcell">'+tTag+'</div>';
     out += '<div class="pcell" style="font-size:12px;color:var(--text2)">'+(p.formato||'-')+'</div>';
@@ -817,8 +885,7 @@ function buildRows(list, pfx) {
     out += '<div><div class="ef-l">Inicio Implant.</div><div class="ef-v">'+fd(p.data_inicio)+'</div></div>';
     out += '<div><div class="ef-l">Data Venda</div><div class="ef-v">'+fd(p.data_venda)+'</div></div>';
     out += '<div><div class="ef-l">KO Realiz.?</div><div class="ef-v">'+(p.kickoff||'-')+'</div></div>';
-    out += '<div><div class="ef-l">ClickUp?</div><div class="ef-v">'+(p.clickup||'-')+'</div></div>';
-    out += '</div>'+logH+obsH+'</div></div>';
+    out += '</div>'+gerH+logH+obsH+'</div></div>';
   }
   return out;
 }
@@ -1987,6 +2054,163 @@ function initAlert(){
 var _cbMap={};
 // URL do Google Apps Script - substitua pela sua URL apos implantar
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-bhGCUB5cIpw_o9tWRPVkcOnhdy2Z9rQr3BUc1CbN3gPqtHdOx_uzteAHuHAXm-fy/exec';
+var _projectLinkMap = {};
+var _projectLinkPromise = null;
+var _linkDebugCount = 0;
+var _projectLinkConflicts = [];
+var _projectRowsSemLink = [];
+var MESES_VALIDOS = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+var _abasMensaisLidas = [];
+var PROJECT_LINK_GID_PRIMARY = '1979811921';
+
+function normalizeClienteKey(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function loadProjectLinksFromSheet() {
+  if (_projectLinkPromise) return _projectLinkPromise;
+  function parseGvizRows(txt) {
+    var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
+    if (!m) return [];
+    var payload = JSON.parse(m[1]);
+    return (((payload || {}).table || {}).rows || []);
+  }
+  function mergeRowsIntoMap(rows, mesOrigem, map) {
+    (rows || []).forEach(function(row){
+      var c = row && row.c ? row.c : [];
+      var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
+      var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
+      if (!cliente) return;
+      if (!link) {
+        _projectRowsSemLink.push({cliente: cliente, mes_origem: mesOrigem, motivo: 'Coluna W vazia'});
+        return;
+      }
+      var key = normalizeClienteKey(cliente);
+      if (!key) return;
+      if (!map[key]) map[key] = [];
+      var jaExiste = map[key].some(function(x){ return x.link === link && x.mes_origem === mesOrigem; });
+      if (!jaExiste) map[key].push({link: link, mes_origem: mesOrigem});
+    });
+  }
+
+  _projectLinkPromise = Promise.resolve().then(function(){
+    var map = {};
+    _projectLinkConflicts = [];
+    _projectRowsSemLink = [];
+    _abasMensaisLidas = ['JAN'];
+    // Etapa segura: manter JAN funcional primeiro.
+    var janUrl = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + PROJECT_LINK_GID_PRIMARY + '&tq=' + encodeURIComponent('select B, W');
+    return fetch(janUrl).then(function(r){ return r.text(); }).then(function(txt){
+      var janRows = parseGvizRows(txt);
+      mergeRowsIntoMap(janRows, 'JAN', map);
+      console.log('[LOAD DEBUG] Qtd projetos JAN (linhas lidas):', janRows.length);
+      return map;
+    });
+  }).then(function(map){
+    // Expansão controlada para demais meses sem quebrar JAN.
+    var wsMetaUrl = 'https://spreadsheets.google.com/feeds/worksheets/' + SHEET_ID + '/public/basic?alt=json';
+    return fetch(wsMetaUrl).then(function(r){ return r.json(); }).then(function(meta){
+      var entries = (((meta || {}).feed || {}).entry || []);
+      var abas = entries.map(function(e){
+        var title = (((e || {}).title || {}).$t || '').trim().toUpperCase();
+        var idt = (((e || {}).id || {}).$t || '');
+        var gid = (idt.split('/').pop() || '').trim();
+        return {title:title, gid:gid};
+      }).filter(function(a){ return a.gid && MESES_VALIDOS.indexOf(a.title) >= 0 && a.gid !== PROJECT_LINK_GID_PRIMARY; });
+      _abasMensaisLidas = ['JAN'].concat(abas.map(function(a){ return a.title; }));
+      console.log('[LOAD DEBUG] Abas lidas:', _abasMensaisLidas);
+
+      return Promise.all(abas.map(function(aba){
+        var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
+        return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
+          var rows = parseGvizRows(txt);
+          mergeRowsIntoMap(rows, aba.title, map);
+          console.log('[LOAD DEBUG] Qtd projetos '+aba.title+' (linhas lidas):', rows.length);
+        }).catch(function(){});
+      })).then(function(){ return map; });
+    }).catch(function(){
+      console.log('[LINK DEBUG] Falha ao ler metadados das abas; mantendo somente JAN.');
+      return map;
+    });
+  }).then(function(map){
+    Object.keys(map).forEach(function(key){
+      var linksDistintos = Array.from(new Set(map[key].map(function(x){ return x.link; })));
+      if (linksDistintos.length > 1) _projectLinkConflicts.push({cliente_normalizado: key, links: linksDistintos.join(' | ')});
+    });
+    _projectLinkMap = map;
+    var totalLinks = Object.keys(map).reduce(function(acc, k){ return acc + map[k].length; }, 0);
+    console.log('[LOAD DEBUG] Qtd total consolidada de links:', totalLinks);
+    return map;
+  }).catch(function(error){
+    console.error('Erro ao consolidar dados do painel (links):', error);
+    return _projectLinkMap || {};
+  });
+  return _projectLinkPromise;
+}
+
+function obterLinkProjeto(row, projeto) {
+  var valor =
+    (projeto && (projeto.projeto_link || projeto.link_projeto || projeto.link || projeto.url_projeto || projeto.projetoLink || projeto['LINK DO PROJETO'] || projeto.col_w || projeto.W)) ||
+    (row && (row.projeto_link || row.link_projeto || row.link || row.url_projeto || row.projetoLink || row['LINK DO PROJETO'] || row.col_w || row.W || row[22])) ||
+    '';
+  return String(valor || '').trim();
+}
+
+function normalizarUrlProjeto(url) {
+  var raw = String(url || '').trim();
+  if (!raw) return '';
+  if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
+  return raw;
+}
+
+function applyProjectLinks(projetos) {
+  return (projetos || []).map(function(p){
+    var byParser = obterLinkProjeto(p._row, p);
+    var linksCliente = _projectLinkMap[normalizeClienteKey(p.cliente)] || [];
+    var byMes = linksCliente.find(function(x){ return (x.mes_origem || '') === String(p.mes || '').toUpperCase(); });
+    var byMap = (byMes || linksCliente[0] || {}).link || '';
+    p.mes_origem = (byMes || linksCliente[0] || {}).mes_origem || p.mes_origem || '';
+    p.projeto_link = normalizarUrlProjeto(byParser || byMap);
+    if (_linkDebugCount < 8 && p.cliente) {
+      console.log('[LINK DEBUG] Projeto final:', {
+        cliente: p.cliente,
+        bruto_row_22: (p._row && p._row[22]) ? p._row[22] : '',
+        bruto_obj: {projeto_link: p.projeto_link, link_projeto: p.link_projeto, link: p.link, url_projeto: p.url_projeto},
+        link_final: p.projeto_link || '(vazio)'
+      });
+      _linkDebugCount++;
+    }
+    return p;
+  });
+}
+
+function runProjectLinkAudit(projetos) {
+  var lista = projetos || [];
+  var comLinkPlanilhaSemBotao = [];
+  var semLinkDeFato = [];
+  lista.forEach(function(p){
+    var key = normalizeClienteKey(p.cliente);
+    var linksPlanilha = _projectLinkMap[key] || [];
+    var linkPlanilha = linksPlanilha.length ? linksPlanilha[0].link : '';
+    var linkFinal = p.projeto_link || '';
+    if (!linkFinal && linkPlanilha) comLinkPlanilhaSemBotao.push({cliente: p.cliente, mes: p.mes || '-', links_planilha: linksPlanilha.map(function(x){ return x.mes_origem+': '+x.link; }).join(' | ')});
+    if (!linkFinal && !linkPlanilha) semLinkDeFato.push({cliente: p.cliente, status: p.status || '-', consultor: p.consultor || '-'});
+  });
+
+  console.log('[LINK AUDIT] Resumo:', {
+    total_projetos: lista.length,
+    com_link_planilha_sem_botao: comLinkPlanilhaSemBotao.length,
+    sem_link_de_fato: semLinkDeFato.length,
+    conflitos_duplicidade: _projectLinkConflicts.length,
+    linhas_w_vazia: _projectRowsSemLink.length
+  });
+  if (comLinkPlanilhaSemBotao.length) console.table(comLinkPlanilhaSemBotao.slice(0, 100));
+  if (semLinkDeFato.length) console.table(semLinkDeFato.slice(0, 100));
+  if (_projectLinkConflicts.length) console.table(_projectLinkConflicts.slice(0, 100));
+}
 
 function _limparJsonp(cb) {
   try { delete window[cb]; } catch(e){}
@@ -2052,6 +2276,11 @@ function loadAll() {
   document.head.appendChild(s);
 }
 
+
+function normalizeProjetoLink(p) {
+  return normalizarUrlProjeto(obterLinkProjeto(p && p._row, p));
+}
+
 function _finalizarLoad(projetos, isRefresh, motivo) {
   var nd = document.getElementById('nav-date');
   var lo = document.getElementById('load-overlay');
@@ -2065,7 +2294,9 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
 
   var temDados = projetos && projetos.length > 0;
   if (temDados) {
-    DATA.projetos = projetos;
+    DATA.projetos = applyProjectLinks(projetos);
+    console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
+    if (DATA.projetos.length) console.log('[LOAD DEBUG] Exemplo projeto consolidado:', DATA.projetos[0]);
     var now = new Date();
     var hora = now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     var data = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -2076,6 +2307,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (motivo === 'timeout') showToast('Planilha demorou \u2014 dados locais exibidos', 'err');
     else if (motivo === 'erro') showToast('Erro de conex\u00E3o \u2014 dados locais exibidos', 'err');
   }
+  runProjectLinkAudit(DATA.projetos);
 
   if (isRefresh) {
     var pageAtiva = document.querySelector('.page.on');
@@ -2102,233 +2334,18 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
 var MESES=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 
 
-// \u2500\u2500 ABA CLICKUP \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-var _ckCache  = {};
-var _ckFilter = 'all';
-
-function _nck(s) {
-  return (s||'').toUpperCase()
-    .replace(/[\u00C0-\u00C5]/g,'A').replace(/[\u00C8-\u00CB]/g,'E')
-    .replace(/[\u00CC-\u00CF]/g,'I').replace(/[\u00D2-\u00D6]/g,'O')
-    .replace(/[\u00D9-\u00DC]/g,'U').replace(/\u00C7/g,'C')
-    .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-}
-
-function initCk() {
-  var el = document.getElementById('ck-content');
-  if (!el) return;
-  renderCkList(filteredProj());
-}
-
-function renderCkList(proj) {
-  var el = document.getElementById('ck-content');
-  if (!proj.length) { el.innerHTML = '<div class="empty">Sem projetos</div>'; return; }
-
-  var lista = proj.map(function(p) {
-    var ck = _ckCache[_nck(p.cliente)] || null;
-    var score = 0, riscos = [], acoes = [];
-
-    // Riscos da planilha
-    if (!p.consultor || !p.consultor.trim()) { riscos.push({t:'crit',msg:'Sem consultor atribu\u00eddo'}); score+=100; acoes.push('Alocar consultor imediatamente'); }
-    if (p.status && p.status.toLowerCase().indexOf('atrasado')>=0) { riscos.push({t:'crit',msg:'Status Atrasado'}); score+=80; acoes.push('Contato urgente \u2014 mapear bloqueios'); }
-    if (p.kickoff && p.kickoff.toUpperCase()==='N\u00C3O') { riscos.push({t:'crit',msg:'Kick-off n\u00e3o realizado'}); score+=60; acoes.push('Agendar kick-off'); }
-    if (p.diarias_rest!==null && p.diarias_rest<-1) { riscos.push({t:'crit',msg:'Di\u00e1rias excedidas: '+Math.abs(p.diarias_rest)}); score+=50; acoes.push('Revisar escopo'); }
-
-    // Dados reais do CK
-    var dias=null, totalF=0, doneF=0, fPend=[], fDone=[], ckCons=null, folderUrl=null;
-    if (ck) {
-      dias=ck.diasSemUpdate; ckCons=ck.consultor; folderUrl=ck.folderUrl;
-      ck.fases.forEach(function(f){ if(f.done) fDone.push(f); else fPend.push(f); });
-      totalF=ck.fases.length; doneF=fDone.length;
-      if (dias>=21) { riscos.push({t:'crit',msg:dias+'d sem atualiza\u00e7\u00e3o no ClickUp'}); score+=70; acoes.push('Cobrar consultor \u2014 '+dias+' dias parado'); }
-      else if (dias>=14) { riscos.push({t:'warn',msg:dias+'d sem atualiza\u00e7\u00e3o'}); score+=35; }
-      else if (dias>=7)  { riscos.push({t:'warn',msg:dias+'d sem atualiza\u00e7\u00e3o'}); score+=15; }
-    } else {
-      dias = !p.consultor?99:p.status&&p.status.toLowerCase().indexOf('atrasado')>=0?21:p.kickoff&&p.kickoff.toUpperCase()==='N\u00C3O'?14:p.status&&p.status.toLowerCase().indexOf('aguardando')>=0?7:2;
-      if (!p.acompanhamento||!p.acompanhamento.trim()) { riscos.push({t:'warn',msg:'Sem acompanhamento registrado'}); score+=15; }
-    }
-
-    return {p:p,score:score,dias:dias,riscos:riscos,acoes:acoes,
-            totalF:totalF,doneF:doneF,fPend:fPend,fDone:fDone,
-            ckCons:ckCons,folderUrl:folderUrl,temCK:!!ck};
-  }).sort(function(a,b){return b.score-a.score;});
-
-  var nCrit=lista.filter(function(x){return x.score>=60;}).length;
-  var nWarn=lista.filter(function(x){return x.score>0&&x.score<60;}).length;
-  var nOk  =lista.filter(function(x){return x.score===0;}).length;
-  var nCK  =lista.filter(function(x){return x.temCK;}).length;
-
-  document.getElementById('n-ck').textContent = nCrit>0?nCrit:'';
-  document.getElementById('kpis-ck').innerHTML =
-    kpi('A\u00e7\u00e3o Imediata',nCrit,nCrit>0?'r':'g')+
-    kpi('Monitorar',nWarn,nWarn>0?'o':'g')+
-    kpi('Saud\u00e1vel',nOk,'g')+
-    kpi('Dados CK reais',nCK,nCK>0?'b':'d');
-
-  var fbar = document.getElementById('ck-filters');
-  fbar.innerHTML = '';
-  var btns = [['all','Todos',lista.length],['crit','\uD83D\uDD34 A\u00e7\u00e3o',nCrit],['warn','\uD83D\uDFE1 Monitorar',nWarn],['ok','\uD83D\uDFE2 Saud\u00e1vel',nOk]];
-  btns.forEach(function(b) {
-    var btn = document.createElement('button');
-    btn.className = 'fbt' + (_ckFilter===b[0]?' on':'');
-    btn.textContent = b[1]+' ('+b[2]+')';
-    btn.dataset.f = b[0];
-    btn.onclick = function(){ _ckFilter=this.dataset.f; renderCkList(filteredProj()); };
-    fbar.appendChild(btn);
-  });
-  var buscarBtn = document.createElement('button');
-  buscarBtn.style.cssText = 'margin-left:auto;padding:6px 16px;border-radius:8px;border:1.5px solid var(--nav);background:var(--nav);color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer';
-  buscarBtn.textContent = nCK>0?'\u21BA Atualizar ClickUp ('+nCK+')':'\uD83D\uDD17 Buscar dados do ClickUp';
-  buscarBtn.onclick = ckBuscar;
-  fbar.appendChild(buscarBtn);
-
-  var filtrado=lista;
-  if (_ckFilter==='crit') filtrado=lista.filter(function(x){return x.score>=60;});
-  else if (_ckFilter==='warn') filtrado=lista.filter(function(x){return x.score>0&&x.score<60;});
-  else if (_ckFilter==='ok') filtrado=lista.filter(function(x){return x.score===0;});
-
-  el.innerHTML = filtrado.map(function(item,i) {
-    var p=item.p, cc=ccol(p.consultor||''), si2=si(p.status), bid='ckb'+i;
-    var cls=item.score>=60?'crit':item.score>0?'warn':'ok';
-    var lbl=item.score>=60?'A\u00e7\u00e3o Imediata':item.score>0?'Monitorar':'Saud\u00e1vel';
-    var prog=item.totalF>0?Math.round(item.doneF/item.totalF*100):0;
-
-    // CK block
-    var ckB = item.temCK ?
-      '<div class="ck-sec">'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'+
-          '<b style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">\uD83D\uDD17 ClickUp \u2014 dados reais</b>'+
-          '<span style="font-size:12px;font-weight:800;color:'+(item.dias>=21?'var(--red)':item.dias>=14?'var(--orange)':item.dias>=7?'var(--yellow)':'var(--green)')+'">'+(item.dias===0?'Hoje':item.dias+'d sem update')+'</span>'+
-        '</div>'+
-        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'+
-          '<div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div style="height:100%;width:'+prog+'%;background:'+(prog>=75?'var(--green)':prog>=40?'var(--orange)':'var(--red)')+';border-radius:4px"></div></div>'+
-          '<span style="font-size:12px;font-weight:800;color:'+(prog>=75?'var(--green)':prog>=40?'var(--orange)':'var(--red)')+'">'+prog+'%</span>'+
-          '<span style="font-size:11px;color:var(--muted)">'+item.doneF+'/'+item.totalF+' fases</span>'+
-        '</div>'+
-        '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Assignee CK: <b style="color:var(--text)">'+(item.ckCons||'N\u00e3o atribu\u00eddo')+'</b></div>'+
-        (item.fPend.length?'<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:var(--orange);text-transform:uppercase;margin-bottom:4px">\u23F3 Pendentes ('+item.fPend.length+')</div>'+item.fPend.map(function(f){return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fef9f0;border:1px solid rgba(249,115,22,.2);border-radius:6px;margin-bottom:3px"><span style="font-size:10px;background:var(--orange);color:#fff;border-radius:4px;padding:1px 7px;flex-shrink:0">'+f.status+'</span><span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.nome+'</span><span style="font-size:10px;color:var(--muted);flex-shrink:0">'+(f.assignee?f.assignee.split(' ')[0]:'sem assignee')+'</span></div>';}).join('')+'</div>':'')+
-        (item.fDone.length?'<div><div style="font-size:10px;font-weight:800;color:var(--green);text-transform:uppercase;margin-bottom:4px">\u2705 Conclu\u00eddas ('+item.fDone.length+')</div><div style="display:flex;flex-wrap:wrap;gap:4px">'+item.fDone.map(function(f){return '<span style="font-size:10px;background:#f0fff4;color:#276749;border:1px solid rgba(56,161,105,.2);border-radius:20px;padding:2px 8px">\u2714 '+f.nome+'</span>';}).join('')+'</div></div>':'')+
-      '</div>'
-      :
-      '<div class="ck-sec" style="text-align:center;padding:16px"><div style="font-size:12px;color:var(--muted)">Clique em <b>Buscar dados do ClickUp</b> para ver fases e \u00faltima atualiza\u00e7\u00e3o real</div></div>';
-
-    // Riscos
-    var rB = item.riscos.length?
-      '<div class="ck-sec"><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--red);margin-bottom:6px">\u26A0 Riscos ('+item.riscos.length+')</div>'+
-      item.riscos.map(function(r){return '<div style="display:flex;gap:8px;align-items:flex-start;background:'+(r.t==='crit'?'#fcebeb':'#faeeda')+';border-radius:7px;padding:6px 10px;margin-bottom:4px"><span>'+(r.t==='crit'?'\uD83D\uDD34':'\uD83D\uDFE1')+'</span><span style="font-size:12px;color:'+(r.t==='crit'?'#a32d2d':'#854f0b')+';font-weight:600;line-height:1.4">'+r.msg+'</span></div>';}).join('')+'</div>':'';
-
-    // Acoes
-    var aB = item.acoes.length?
-      '<div class="ck-sec" style="background:#ebf8ff"><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--blue);margin-bottom:6px">\u2192 O que fazer agora</div>'+
-      item.acoes.map(function(a,ai){return '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:4px"><div style="width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">'+(ai+1)+'</div><span style="font-size:12px;color:#2c5282;line-height:1.5">'+a+'</span></div>';}).join('')+'</div>':'';
-
-    // Grid dados planilha
-    var kRed=p.diarias_rest!==null&&p.diarias_rest<0?'var(--red)':'var(--text)';
-    var pB='<div class="ck-sec"><div class="ck-grid">'+
-      '<div class="ck-stat"><div class="ck-stat-l">Consultor</div><div class="ck-stat-v" style="color:'+cc+'">'+(p.consultor||'N\u00e3o definido')+'</div></div>'+
-      '<div class="ck-stat"><div class="ck-stat-l">Vendedor</div><div class="ck-stat-v">'+(p.vendedor||'-')+'</div></div>'+
-      '<div class="ck-stat"><div class="ck-stat-l">Di\u00e1rias rest.</div><div class="ck-stat-v" style="color:'+kRed+'">'+(p.diarias_rest!==null?p.diarias_rest:'-')+'</div></div>'+
-      '<div class="ck-stat"><div class="ck-stat-l">Kickoff</div><div class="ck-stat-v" style="color:'+(p.kickoff&&p.kickoff.toUpperCase()==='N\u00C3O'?'var(--red)':'var(--green)')+'">'+(p.kickoff||'-')+'</div></div>'+
-    '</div></div>';
-
-    // Acompanhamento
-    var acB = p.acompanhamento&&p.acompanhamento.trim()?
-      '<div class="ck-sec"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">\uD83D\uDCAC Acompanhamento (planilha)</div><div style="font-size:13px;color:var(--text2);line-height:1.6;font-style:italic">&ldquo;'+p.acompanhamento+'&rdquo;</div></div>':
-      '<div class="ck-sec" style="background:#fff5f5"><div style="font-size:12px;color:var(--red);font-weight:600">\uD83D\uDEAB Sem acompanhamento registrado</div></div>';
-
-    // Link
-    var lkUrl = item.folderUrl;
-    var lkB='<div class="ck-sec" style="display:flex;align-items:center;gap:10px">'+
-      (lkUrl?
-        '<a href="'+lkUrl+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;background:var(--nav);color:#fff;padding:6px 14px;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none">\uD83D\uDD17 Abrir projeto no ClickUp</a>':
-        '<a href="https://app.clickup.com/9007083069/search?q='+encodeURIComponent(p.cliente)+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;background:var(--surf2);color:var(--nav);border:1.5px solid var(--nav);padding:6px 14px;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none">\uD83D\uDD0D Buscar no ClickUp</a>')+
-      '<span style="font-size:10px;color:'+(item.temCK?'var(--green)':'var(--muted)')+';font-weight:600">'+(item.temCK?'\u2705 Dados reais':'Clique em Buscar para dados reais')+'</span>'+
-    '</div>';
-
-    return '<div class="ck-card">'+
-      '<div class="ck-head" id="ck-h-'+bid+'" onclick="var b=document.getElementById(\'' + bid + '\');b.classList.toggle(\'on\')">' +
-        '<div style="flex:1;min-width:0">'+
-          '<div class="ck-nome">'+p.cliente+'</div>'+
-          '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+
-            '<span style="color:'+cc+';font-weight:700">'+(p.consultor||'\u26A0 Sem consultor')+'</span>'+
-            ' \u2022 '+p.mes+' \u2022 <span class="tag '+si2.cls+'" style="font-size:10px">'+sl(p.status)+'</span>'+
-            (item.temCK?' \u2022 <span style="color:'+(item.dias>=14?'var(--red)':item.dias>=7?'var(--orange)':'var(--green)')+';font-size:10px;font-weight:700">'+item.dias+'d CK</span>':'')+
-          '</div>'+
-        '</div>'+
-        (item.temCK&&item.totalF>0?'<span style="font-size:11px;font-weight:800;color:'+(prog>=75?'var(--green)':prog>=40?'var(--orange)':'var(--red)')+';margin-right:6px">'+prog+'%</span>':'')+
-        '<span class="ck-badge '+cls+'">'+lbl+'</span>'+
-        '<span style="color:var(--muted);font-size:11px;margin-left:6px">\u25BC</span>'+
-      '</div>'+
-      '<div class="ck-body" id="'+bid+'">'+ckB+rB+aB+pB+acB+lkB+'</div>'+
-    '</div>';
-  }).join('');
-}
-
-function ckBuscar() {
-  var el = document.getElementById('ck-content');
-  el.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:28px;margin-bottom:12px">\uD83D\uDD17</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">Buscando dados do ClickUp...</div><div style="font-size:12px;color:var(--muted)">Via Apps Script \u2014 pode levar at\u00e9 30 segundos</div></div>';
-
-  var cbName = '_ckCb' + Date.now();
-  var done   = false;
-
-  var timer = setTimeout(function() {
-    if (done) return;
-    done = true;
-    _ckClean(cbName);
-    showToast('Timeout \u2014 Apps Script demorou mais de 30s', 'err');
-    renderCkList(filteredProj());
-  }, 30000);
-
-  window[cbName] = function(resp) {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _ckClean(cbName);
-    if (resp && resp.erro) { showToast('Erro: ' + resp.erro, 'err'); renderCkList(filteredProj()); return; }
-    var list = (resp && resp.clickup) || [];
-    if (!list.length) { showToast('Nenhum dado retornado do ClickUp', 'err'); renderCkList(filteredProj()); return; }
-    var n = 0;
-    list.forEach(function(item) {
-      if (!item || !item.cliente) return;
-      var fases = (item.fases || []).map(function(f) {
-        var st = String(f.status || '').toLowerCase();
-        return { nome: f.nome || f.name || '', status: f.status || '', done: !!(f.done || /done|closed|conclu/i.test(st)), assignee: f.assignee || null };
-      });
-      _ckCache[_nck(item.cliente)] = { diasSemUpdate: typeof item.diasSemUpdate==='number'?item.diasSemUpdate:99, consultor: item.consultor||null, fases: fases, folderUrl: item.folderUrl||null };
-      n++;
-    });
-    showToast(n + ' projetos com dados reais do ClickUp!', 'ok');
-    renderCkList(filteredProj());
-  };
-
-  var s = document.createElement('script');
-  s.id  = '_cks_' + cbName;
-  s.src = APPS_SCRIPT_URL + '?action=clickup&callback=' + cbName;
-  s.onerror = function() {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _ckClean(cbName);
-    showToast('Erro ao chamar Apps Script', 'err');
-    renderCkList(filteredProj());
-  };
-  document.head.appendChild(s);
-}
-
-function _ckClean(cb) {
-  try { delete window[cb]; } catch(e) {}
-  var s = document.getElementById('_cks_' + cb);
-  if (s && s.parentNode) s.parentNode.removeChild(s);
-}
-
 // ---- Init ----
 window._logModo = window._logModo || 'geral';
 window._logPeriodo = window._logPeriodo || '30';
 window._jaCarregou = false;
+DATA.projetos = applyProjectLinks(DATA.projetos || []);
+loadProjectLinksFromSheet().then(function(){
+  DATA.projetos = applyProjectLinks(DATA.projetos || []);
+  runProjectLinkAudit(DATA.projetos);
+  if (window._jaCarregou) renderAll();
+});
 // Mostra overlay e busca Sheets \u2014 nao renderiza nada antes
 loadAll();
 </script>
 </body>
-</html</div>
-</div>
->
+</html>
