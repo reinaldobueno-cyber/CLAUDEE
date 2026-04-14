@@ -762,124 +762,131 @@ function buildPrazoCards(p) {
   '</div>';
 }
 
-function buildGerencialProjeto(p) {
-  // Regras explícitas do cálculo:
-  // - Subtarefas ENTRAM no cálculo quando existirem no array de itens da fase.
-  // - Headers/seções/fases de agrupamento NÃO entram.
-  // - Milestone é identificado por flag/tipo (milestone=true, type/item_type=milestone).
-  // - Concluído: status em done/closed/complete/concluído/finalizado.
-  function statusConcluido(st) {
-    var s = String(st || '').toLowerCase();
-    return /(done|closed|complete|conclu|finaliz|feito|resolved)/.test(s);
-  }
-  function isHeaderItem(it) {
-    var t = String(it.type || it.item_type || '').toLowerCase();
-    return /(header|section|group|phase)/.test(t) || it.is_header === true;
-  }
-  function isMilestoneItem(it) {
-    if (it.milestone === true || it.is_milestone === true) return true;
-    var t = String(it.type || it.item_type || '').toLowerCase();
-    return t.indexOf('milestone') >= 0 || t.indexOf('marco') >= 0;
-  }
-  function extrairItensDaFase(proj) {
-    var fontes = [proj.itens_fase, proj.fase_itens, proj.items_fase, proj.tasks, proj.clickup_items, proj.fase_items];
-    for (var i = 0; i < fontes.length; i++) {
-      if (Array.isArray(fontes[i])) return fontes[i];
+function statusConcluidoProjeto(st) {
+  var s = String(st || '').toLowerCase();
+  return /(done|closed|complete|conclu|finaliz|feito|resolved)/.test(s);
+}
+function isHeaderProjetoItem(it) {
+  var t = String(it.type || it.item_type || '').toLowerCase();
+  return /(header|section|group|phase|list)/.test(t) || it.is_header === true;
+}
+function isMilestoneProjetoItem(it) {
+  if (it.milestone === true || it.is_milestone === true) return true;
+  var t = String(it.type || it.item_type || '').toLowerCase();
+  return t.indexOf('milestone') >= 0 || t.indexOf('marco') >= 0;
+}
+function coletarDadosBrutosProjeto(proj) {
+  return {
+    projeto_id: proj.projeto_id || proj.id || null,
+    projeto_nome: proj.cliente || proj.projeto_nome || '',
+    fase_nome: proj.fase_nome || proj.fase || '',
+    itens: Array.isArray(proj.itens_fase) ? proj.itens_fase :
+      Array.isArray(proj.fase_itens) ? proj.fase_itens :
+      Array.isArray(proj.items_fase) ? proj.items_fase :
+      Array.isArray(proj.tasks) ? proj.tasks :
+      Array.isArray(proj.clickup_items) ? proj.clickup_items :
+      Array.isArray(proj.fase_items) ? proj.fase_items : [],
+    origem: 'clickup'
+  };
+}
+function normalizarEstruturaProjeto(dadosBrutos) {
+  var estrutura = {
+    cliente: dadosBrutos.projeto_nome || '',
+    projeto_id: dadosBrutos.projeto_id || '',
+    fases: [],
+    tasks: [],
+    marcos: [],
+    resumo: {
+      fases_total: 0, tasks_total: 0, tasks_concluidas: 0, tasks_pendentes: 0,
+      marcos_total: 0, marcos_concluidos: 0, marcos_pendentes: 0, progresso: 0, total_itens: 0
     }
-    return [];
-  }
-  function numFrom(obj, keys) {
-    for (var i = 0; i < keys.length; i++) {
-      var v = obj[keys[i]];
-      if (v === null || v === undefined || v === '') continue;
-      var n = Number(String(v).replace(',', '.'));
-      if (!isNaN(n)) return n;
+  };
+  var itens = dadosBrutos.itens || [];
+  var parentComSub = {};
+  itens.forEach(function(it){
+    if (it && it.parent_id) parentComSub[it.parent_id] = true;
+  });
+  itens.forEach(function(it){
+    if (!it || isHeaderProjetoItem(it)) return;
+    var faseNome = it.fase_nome || it.list_name || it.group_name || dadosBrutos.fase_nome || '';
+    var item = {
+      id: it.id || it.task_id || '',
+      nome: it.nome || it.name || '',
+      tipo_normalizado: isMilestoneProjetoItem(it) ? 'marco' : 'task',
+      concluida: statusConcluidoProjeto(it.status),
+      fase_nome: faseNome,
+      origem: it.origem || dadosBrutos.origem || 'clickup',
+      status_original: it.status || ''
+    };
+    if (item.fase_nome && !estrutura.fases.some(function(f){ return f.nome === item.fase_nome; })) {
+      estrutura.fases.push({id: it.fase_id || it.list_id || '', nome: item.fase_nome});
     }
-    return null;
-  }
-  var hoje = new Date();
-  var ultimaAtualizacaoReal = parseD(
-    p.ultima_atualizacao_real || p.data_ultima_atualizacao || p.ultima_atualizacao || p.last_update || ''
-  );
-  if (!ultimaAtualizacaoReal) {
-    ultimaAtualizacaoReal = parseD(p.data_enc) || parseD(p.data_inicio) || parseD(p.data_kick) || parseD(p.data_venda);
-  }
-  var diasSemAtualizacao = ultimaAtualizacaoReal ? Math.max(0, diffD(ultimaAtualizacaoReal, hoje)) : null;
-
-  var itensDaFase = extrairItensDaFase(p).filter(function(it){ return !isHeaderItem(it); });
-  var tarefasConcluidas, tarefasPendentes, marcosConcluidos, marcosPendentes;
-  if (itensDaFase.length) {
-    var tarefas = itensDaFase.filter(function(it){ return !isMilestoneItem(it); });
-    var marcos = itensDaFase.filter(function(it){ return isMilestoneItem(it); });
-    tarefasConcluidas = tarefas.filter(function(it){ return statusConcluido(it.status); }).length;
-    tarefasPendentes = tarefas.length - tarefasConcluidas;
-    marcosConcluidos = marcos.filter(function(it){ return statusConcluido(it.status); }).length;
-    marcosPendentes = marcos.length - marcosConcluidos;
-  } else {
-    tarefasConcluidas = numFrom(p, ['tarefas_concluidas', 'tasks_concluidas', 'tasks_done', 'tarefas_done']);
-    tarefasPendentes = numFrom(p, ['tarefas_pendentes', 'tasks_pendentes', 'tasks_todo', 'tarefas_todo']);
-    marcosConcluidos = numFrom(p, ['marcos_concluidos', 'milestones_done', 'marcos_done']);
-    marcosPendentes = numFrom(p, ['marcos_pendentes', 'milestones_pending', 'marcos_todo']);
-    if (tarefasConcluidas === null) tarefasConcluidas = 0;
-    if (tarefasPendentes === null) tarefasPendentes = 0;
-    if (marcosConcluidos === null) marcosConcluidos = 0;
-    if (marcosPendentes === null) marcosPendentes = 0;
-  }
-  var tarefasTotais = tarefasConcluidas + tarefasPendentes;
-  var marcosTotal = marcosConcluidos + marcosPendentes;
-  var itensConcluidos = tarefasConcluidas + marcosConcluidos;
-  var itensTotais = tarefasTotais + marcosTotal;
-  var progresso = itensTotais > 0 ? Math.round((itensConcluidos / itensTotais) * 100) : 0;
-
-  var nomeProjDebug = String(p.cliente || p.fase || '').toUpperCase();
-  if (nomeProjDebug.indexOf('FASE 08 - CONFINAMENTO') >= 0) {
-    console.log('[FASE DEBUG] Fase 08 - Confinamento', {
-      total_itens_fase: itensDaFase.length || (tarefasTotais + marcosTotal),
-      tasks_normais: tarefasTotais,
-      marcos: marcosTotal,
-      tasks_concluidas: tarefasConcluidas,
-      tasks_pendentes: tarefasPendentes,
-      marcos_concluidos: marcosConcluidos,
-      marcos_pendentes: marcosPendentes,
-      regra_concluido: 'done|closed|complete|concluído|finalizado|feito|resolved',
-      subtarefas_entram: true,
-      headers_entram: false
-    });
-  }
-
-  var riscos = [];
-  if (!p.consultor || !p.consultor.trim()) riscos.push('Sem dono');
-  if (p.status && p.status.indexOf('Atrasado') >= 0) riscos.push('Atraso');
-  if (p.kickoff && p.kickoff.toUpperCase() === 'NÃO') riscos.push('Kickoff pendente');
-  if (p.diarias_rest !== null && p.diarias_rest < 0) riscos.push('Diárias excedidas');
-  if (diasSemAtualizacao !== null && diasSemAtualizacao >= 14) riscos.push('Sem atualização');
-  if (diasSemAtualizacao === null) riscos.push('Sem data de atualização');
-  if (!riscos.length) riscos.push('Sem risco crítico');
-
-  var linkHtml = p.projeto_link
-    ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
-    : '';
-
+    // Política: subtarefas entram, mas se existem subtarefas o pai não entra para evitar dupla contagem.
+    var isParentComSub = item.id && parentComSub[item.id] === true;
+    if (isParentComSub) return;
+    if (item.tipo_normalizado === 'marco') estrutura.marcos.push(item);
+    else estrutura.tasks.push(item);
+  });
+  return estrutura;
+}
+function calcularResumoProjeto(estrutura) {
+  var totalTasks = estrutura.tasks.length;
+  var totalMarcos = estrutura.marcos.length;
+  var tasksConcluidas = estrutura.tasks.filter(function(t){ return t.concluida; }).length;
+  var marcosConcluidos = estrutura.marcos.filter(function(m){ return m.concluida; }).length;
+  var totalItens = totalTasks + totalMarcos;
+  var totalConcluidos = tasksConcluidas + marcosConcluidos;
+  return {
+    fases_total: estrutura.fases.length,
+    tasks_total: totalTasks,
+    tasks_concluidas: tasksConcluidas,
+    tasks_pendentes: totalTasks - tasksConcluidas,
+    marcos_total: totalMarcos,
+    marcos_concluidos: marcosConcluidos,
+    marcos_pendentes: totalMarcos - marcosConcluidos,
+    progresso: totalItens > 0 ? Math.round((totalConcluidos / totalItens) * 100) : 0,
+    total_itens: totalItens
+  };
+}
+function renderResumoProjeto(estrutura, p) {
+  var r = estrutura.resumo;
+  var fasesTxt = estrutura.fases.length ? estrutura.fases.slice(0, 3).map(function(f){ return f.nome; }).join(' • ') : '-';
+  var linkHtml = p.projeto_link ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>' : '';
   return ''+
     '<div style="margin:12px 0 6px">'+
-      '<div class="sec-l">Visão Gerencial</div>'+
+      '<div class="sec-l">Resumo do Projeto</div>'+
       '<div class="exp-grid">'+
-        '<div><div class="ef-l">% Progresso (itens)</div><div class="ef-v">'+progresso+'%</div></div>'+
-        '<div><div class="ef-l">Tarefas</div><div class="ef-v">'+tarefasConcluidas+' concl. / '+tarefasPendentes+' pend.</div></div>'+
-        '<div><div class="ef-l">Marcos</div><div class="ef-v">'+marcosConcluidos+' concl. / '+marcosPendentes+' pend.</div></div>'+
-        '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+(diasSemAtualizacao!==null?(diasSemAtualizacao+' dias'):'-')+'</div></div>'+
-        '<div><div class="ef-l">Consultor mais recente</div><div class="ef-v">'+(p.consultor||'-')+'</div></div>'+
-        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+(linkHtml||'')+'</div></div>'+
+        '<div><div class="ef-l">Fases</div><div class="ef-v">'+r.fases_total+'</div></div>'+
+        '<div><div class="ef-l">Tasks</div><div class="ef-v">'+r.tasks_concluidas+' concl. / '+r.tasks_pendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Marcos</div><div class="ef-v">'+r.marcos_concluidos+' concl. / '+r.marcos_pendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Progresso</div><div class="ef-v">'+r.progresso+'%</div></div>'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
+        '<div><div class="ef-l">Fases (nomes)</div><div class="ef-v" style="font-size:11px">'+fasesTxt+'</div></div>'+
       '</div>'+
-      '<div class="sec-l">Top Riscos</div>'+
-      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
-        riscos.slice(0,3).map(function(r){
-          var cls = r === 'Sem risco crítico' ? 'tag-g' : 'tag-r';
-          return '<span class="tag '+cls+'">'+r+'</span>';
-        }).join('')+
-      '</div>'+
-      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace">Fórmula: (tarefas concl. + marcos concl.) / (tarefas totais + marcos totais) • Última atualização: campo ultima_atualizacao_real/data_ultima_atualizacao</div>'+
+      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace" title="(tasks concl. + marcos concl.) / (tasks totais + marcos totais)">Total de itens considerados: '+r.total_itens+' • Regra: tasks + marcos</div>'+
     '</div>';
+}
+function debugProjeto(estrutura) {
+  console.log('Projeto:', estrutura.cliente);
+  console.log('Fases:', estrutura.fases);
+  console.log('Tasks:', estrutura.tasks.map(function(t){ return {nome:t.nome, concluida:t.concluida, origem:t.origem}; }));
+  console.log('Marcos:', estrutura.marcos.map(function(m){ return {nome:m.nome, concluido:m.concluida, origem:m.origem}; }));
+  console.log('Resumo:', estrutura.resumo);
+}
+function buildGerencialProjeto(p) {
+  try {
+    var bruto = coletarDadosBrutosProjeto(p);
+    var estrutura = normalizarEstruturaProjeto(bruto);
+    estrutura.resumo = calcularResumoProjeto(estrutura);
+    if (String(p.cliente || '').toUpperCase().indexOf('FASE 08 - CONFINAMENTO') >= 0) {
+      console.log('[FASE DEBUG] Fase 08 - Confinamento');
+      debugProjeto(estrutura);
+    }
+    return renderResumoProjeto(estrutura, p);
+  } catch (error) {
+    console.error('Erro ao normalizar projeto:', error);
+    return '<div style="margin:12px 0 6px"><div class="sec-l">Resumo do Projeto</div><div class="log-box">Falha ao montar resumo estruturado. Verifique o console para detalhes.</div></div>';
+  }
 }
 
 // ---- Build table rows ----
