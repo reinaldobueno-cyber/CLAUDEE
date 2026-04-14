@@ -834,8 +834,6 @@ function calcularResumoProjeto(estrutura) {
   var totalMarcos = estrutura.marcos.length;
   var tasksConcluidas = estrutura.tasks.filter(function(t){ return t.concluida; }).length;
   var marcosConcluidos = estrutura.marcos.filter(function(m){ return m.concluida; }).length;
-  var totalItens = totalTasks + totalMarcos;
-  var totalConcluidos = tasksConcluidas + marcosConcluidos;
   return {
     fases_total: estrutura.fases.length,
     tasks_total: totalTasks,
@@ -843,14 +841,57 @@ function calcularResumoProjeto(estrutura) {
     tasks_pendentes: totalTasks - tasksConcluidas,
     marcos_total: totalMarcos,
     marcos_concluidos: marcosConcluidos,
-    marcos_pendentes: totalMarcos - marcosConcluidos,
-    progresso: totalItens > 0 ? Math.round((totalConcluidos / totalItens) * 100) : 0,
-    total_itens: totalItens
+    marcos_pendentes: totalMarcos - marcosConcluidos
   };
 }
+function calcularProgressoProjeto(resumo) {
+  var totalTasks = Number(resumo && resumo.tasks_total || 0);
+  var totalMarcos = Number(resumo && resumo.marcos_total || 0);
+  var tasksConcluidas = Number(resumo && resumo.tasks_concluidas || 0);
+  var marcosConcluidos = Number(resumo && resumo.marcos_concluidos || 0);
+  var totalItens = totalTasks + totalMarcos;
+  var totalConcluidos = tasksConcluidas + marcosConcluidos;
+  var progresso = totalItens > 0 ? Math.round((totalConcluidos / totalItens) * 100) : 0;
+  return { progresso: progresso, total_itens: totalItens, total_concluidos: totalConcluidos };
+}
+function montarResumoProjeto(projetoBruto) {
+  var bruto = coletarDadosBrutosProjeto(projetoBruto);
+  var estrutura = normalizarEstruturaProjeto(bruto);
+  var resumo = calcularResumoProjeto(estrutura);
+  var calc = calcularProgressoProjeto(resumo);
+  var resultado = {
+    indisponivel: false,
+    cliente: estrutura.cliente,
+    fases: estrutura.fases,
+    tasks: estrutura.tasks,
+    marcos: estrutura.marcos,
+    fases_total: resumo.fases_total,
+    tasks_total: resumo.tasks_total,
+    tasks_concluidas: resumo.tasks_concluidas,
+    tasks_pendentes: resumo.tasks_pendentes,
+    marcos_total: resumo.marcos_total,
+    marcos_concluidos: resumo.marcos_concluidos,
+    marcos_pendentes: resumo.marcos_pendentes,
+    progresso: calc.progresso,
+    total_itens: calc.total_itens
+  };
+  console.log('[RESUMO] Projeto:', resultado.cliente || projetoBruto.cliente || '-');
+  console.log('[RESUMO] Fases:', resultado.fases_total);
+  console.log('[RESUMO] Tasks:', resultado.tasks_total);
+  console.log('[RESUMO] Marcos:', resultado.marcos_total);
+  console.log('[PROGRESSO] Projeto:', resultado.cliente || projetoBruto.cliente || '-', resultado.progresso + '%');
+  return resultado;
+}
 function renderResumoProjeto(estrutura, p) {
-  var r = estrutura.resumo;
-  var fasesTxt = estrutura.fases.length ? estrutura.fases.slice(0, 3).map(function(f){ return f.nome; }).join(' • ') : '-';
+  var r = estrutura;
+  if (!r || r.indisponivel) {
+    return ''+
+      '<div style="margin:12px 0 6px">'+
+        '<div class="sec-l">Resumo do Projeto</div>'+
+        '<div class="log-box">Resumo indisponível.</div>'+
+      '</div>';
+  }
+  var fasesTxt = r.fases && r.fases.length ? r.fases.slice(0, 3).map(function(f){ return f.nome; }).join(' • ') : '-';
   var linkHtml = p.projeto_link ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>' : '';
   return ''+
     '<div style="margin:12px 0 6px">'+
@@ -875,17 +916,21 @@ function debugProjeto(estrutura) {
 }
 function buildGerencialProjeto(p) {
   try {
-    var bruto = coletarDadosBrutosProjeto(p);
-    var estrutura = normalizarEstruturaProjeto(bruto);
-    estrutura.resumo = calcularResumoProjeto(estrutura);
+    var resumo = p && p.resumo_projeto && !p.resumo_projeto.indisponivel ? p.resumo_projeto : montarResumoProjeto(p);
     if (String(p.cliente || '').toUpperCase().indexOf('FASE 08 - CONFINAMENTO') >= 0) {
       console.log('[FASE DEBUG] Fase 08 - Confinamento');
-      debugProjeto(estrutura);
+      debugProjeto({
+        cliente: resumo.cliente,
+        fases: resumo.fases || [],
+        tasks: resumo.tasks || [],
+        marcos: resumo.marcos || [],
+        resumo: resumo
+      });
     }
-    return renderResumoProjeto(estrutura, p);
+    return renderResumoProjeto(resumo, p);
   } catch (error) {
-    console.error('Erro ao normalizar projeto:', error);
-    return '<div style="margin:12px 0 6px"><div class="sec-l">Resumo do Projeto</div><div class="log-box">Falha ao montar resumo estruturado. Verifique o console para detalhes.</div></div>';
+    console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
+    return renderResumoProjeto({indisponivel: true}, p || {});
   }
 }
 
@@ -2236,6 +2281,28 @@ function prepararProjetosBase(projetos) {
     return p;
   });
 }
+function carregarBaseProjetos(projetosRaw) {
+  var abasLidas = ['JAN','FEV','MAR','ABR'];
+  console.log('[BASE] Abas lidas:', abasLidas);
+  var base = prepararProjetosBase(projetosRaw);
+  base = applyProjectLinks(base);
+  var projetosPorAba = {};
+  var linksValidosPorAba = {};
+  abasLidas.forEach(function(m){
+    projetosPorAba[m] = base.filter(function(p){ return String(p.mes || '').toUpperCase() === m; }).length;
+    linksValidosPorAba[m] = base.filter(function(p){ return String(p.mes || '').toUpperCase() === m && !!p.projeto_link; }).length;
+  });
+  console.log('[BASE] Projetos por aba:', projetosPorAba);
+  console.log('[BASE] Links válidos por aba:', linksValidosPorAba);
+  console.log('[BASE] Total consolidado:', base.length);
+  return {
+    projetos: base,
+    abas_lidas: abasLidas,
+    projetos_por_aba: projetosPorAba,
+    links_validos_por_aba: linksValidosPorAba,
+    total: base.length
+  };
+}
 
 function runProjectLinkAudit(projetos) {
   var lista = projetos || [];
@@ -2343,11 +2410,6 @@ function normalizeProjetoLink(p) {
   return normalizarUrlProjeto(obterLinkProjeto(p && p._row, p));
 }
 
-
-function normalizeProjetoLink(p) {
-  return normalizarUrlProjeto(obterLinkProjeto(p && p._row, p));
-}
-
 function _finalizarLoad(projetos, isRefresh, motivo) {
   console.log('[3] Finalizando carga. Motivo:', motivo);
   var nd = document.getElementById('nav-date');
@@ -2361,12 +2423,28 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
   }
 
   try {
-    var base = prepararProjetosBase(projetos);
-    var temDados = base.length > 0;
+    var baseRaw = prepararProjetosBase(projetos);
+    var temDados = baseRaw.length > 0;
     if (temDados) {
-    console.log('[4] Linhas processadas:', base.length);
-    DATA.projetos = applyProjectLinks(base);
-    console.log('[5] Projetos normalizados:', DATA.projetos.length);
+    console.log('[4] Linhas processadas:', baseRaw.length);
+    var baseInfo = carregarBaseProjetos(baseRaw);
+    console.log('[5] Projetos normalizados:', baseInfo.projetos.length);
+    DATA.projetos = baseInfo.projetos.map(function(projeto){
+      try {
+        var resumo = montarResumoProjeto(projeto);
+        var progressoCalc = calcularProgressoProjeto(resumo);
+        return Object.assign({}, projeto, {
+          resumo_projeto: resumo,
+          progresso_resumo: progressoCalc.progresso
+        });
+      } catch (errorResumo) {
+        console.error('[RESUMO] Erro no projeto', projeto.cliente || '-', errorResumo);
+        return Object.assign({}, projeto, {
+          resumo_projeto: { indisponivel: true },
+          progresso_resumo: null
+        });
+      }
+    });
     console.log('[6] Consolidado final:', DATA.projetos.length);
     console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
     ['JAN','FEV','MAR','ABR'].forEach(function(m){
@@ -2381,7 +2459,23 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (nd) nd.textContent = 'Planilha: ' + data + ' ' + hora;
     if (isRefresh) showToast(projetos.length + ' projetos atualizados \u2714', 'ok');
     } else {
-      DATA.projetos = prepararProjetosBase(DATA.projetos);
+      var baseLocalInfo = carregarBaseProjetos(DATA.projetos);
+      DATA.projetos = baseLocalInfo.projetos.map(function(projeto){
+        try {
+          var resumoLocal = montarResumoProjeto(projeto);
+          var progressoLocal = calcularProgressoProjeto(resumoLocal);
+          return Object.assign({}, projeto, {
+            resumo_projeto: resumoLocal,
+            progresso_resumo: progressoLocal.progresso
+          });
+        } catch (errorResumoLocal) {
+          console.error('[RESUMO] Erro no projeto (base local)', projeto.cliente || '-', errorResumoLocal);
+          return Object.assign({}, projeto, {
+            resumo_projeto: { indisponivel: true },
+            progresso_resumo: null
+          });
+        }
+      });
       if (nd) nd.textContent = 'Falha ao carregar planilha (' + motivo + ')';
       if (motivo === 'timeout') showToast('Planilha demorou — exibindo base local', 'err');
       else if (motivo === 'erro') showToast('Erro de conexão — exibindo base local', 'err');
@@ -2429,12 +2523,28 @@ window._jaCarregou = false;
 function inicializarPainel() {
   try {
     console.log('[INIT] Inicialização completa iniciada');
-    DATA.projetos = prepareBaseLocal(DATA.projetos || []);
-    DATA.projetos = applyProjectLinks(DATA.projetos || []);
+    var baseLocal = carregarBaseProjetos(prepareBaseLocal(DATA.projetos || []));
+    DATA.projetos = baseLocal.projetos.map(function(projeto){
+      try {
+        var resumoLocal = montarResumoProjeto(projeto);
+        var progressoLocal = calcularProgressoProjeto(resumoLocal);
+        return Object.assign({}, projeto, {
+          resumo_projeto: resumoLocal,
+          progresso_resumo: progressoLocal.progresso
+        });
+      } catch (errorResumo) {
+        console.error('[RESUMO] Erro no projeto (init local)', projeto.cliente || '-', errorResumo);
+        return Object.assign({}, projeto, {
+          resumo_projeto: { indisponivel: true },
+          progresso_resumo: null
+        });
+      }
+    });
     console.log('[INIT] Base local pronta:', DATA.projetos.length);
     loadProjectLinksFromSheet().then(function(){
       console.log('[INIT] Links por aba carregados');
-      DATA.projetos = applyProjectLinks(DATA.projetos || []);
+      var baseComLinks = carregarBaseProjetos(DATA.projetos || []);
+      DATA.projetos = baseComLinks.projetos;
       runProjectLinkAudit(DATA.projetos);
       if (window._jaCarregou) renderAll();
     }).catch(function(err){
