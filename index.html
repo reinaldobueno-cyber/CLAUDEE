@@ -71,6 +71,9 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 .pcell{display:flex;align-items:center;padding:10px 6px 10px 0;}
 .pcell:first-child{flex-direction:column;align-items:flex-start;gap:2px;}
 .pname{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.pname-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
+.project-link-btn{display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;border-radius:5px;border:1px solid var(--green);background:var(--green-s);color:var(--green);font-size:10px;font-weight:700;text-decoration:none;flex-shrink:0;}
+.project-link-btn:hover{background:var(--green);color:#fff;}
 .psub{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
 .chev{color:var(--muted);font-size:14px;justify-content:flex-end;transition:transform .2s;}
 .prow.open .chev{transform:rotate(90deg);}
@@ -238,23 +241,6 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 .page.on{display:block;}
 
 
-/* ── ClickUp Tab ── */
-.ck-card{background:var(--surf);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:10px}
-.ck-head{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer}
-.ck-head:hover{background:var(--surf2)}
-.ck-nome{font-size:13px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ck-badge{font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;flex-shrink:0;white-space:nowrap}
-.ck-badge.crit{background:#fff5f5;color:#9b2c2c}
-.ck-badge.warn{background:#fffaf0;color:#9c4221}
-.ck-badge.ok{background:#f0fff4;color:#276749}
-.ck-body{display:none}
-.ck-body.on{display:block}
-.ck-sec{padding:12px 16px;border-top:1px solid var(--border)}
-.ck-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.ck-stat{background:var(--surf2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
-.ck-stat-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:3px}
-.ck-stat-v{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
 </style>
 </head>
 <body>
@@ -290,7 +276,6 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 <button class="snb" onclick="goTab('log',this)"><span class="snb-icon">&#128506;</span><span class="snb-label">Log&iacute;stica</span><span class="snb-badge" id="n-log">0</span></button>
 <button class="snb" onclick="goTab('praz',this)"><span class="snb-icon">&#8987;</span><span class="snb-label">Prazos</span><span class="snb-badge" id="n-praz">0</span></button>
 <button class="snb" onclick="goTab('alert',this)"><span class="snb-icon">&#128680;</span><span class="snb-label">Alertas</span><span class="snb-badge" id="n-alert">0</span></button>
-    <button class="snb" onclick="goTab('ck',this)"><span class="snb-icon">&#128279;</span><span class="snb-label">ClickUp</span><span class="snb-badge" id="n-ck"></span></button>
 </div>
 <div class="main-content">
 <div class="page on" id="page-dash"><div id="dash-content"></div></div>
@@ -350,7 +335,6 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
   </div>
 </div>
 <div class="page" id="page-exec"><div id="exec-content" style="padding:4px 0"></div></div>
-<div class="page" id="page-ck"><div class="kpis" id="kpis-ck"></div><div id="ck-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center"></div><div id="ck-content"></div></div>
 
 <div class="toast" id="toast">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -438,7 +422,6 @@ function goTab(id, btn) {
     });
   }
   _openId = null;
-  if (id === 'ck') { initCk(); }
   if (id === 'log') {
     setTimeout(function(){
       try {
@@ -779,6 +762,227 @@ function buildPrazoCards(p) {
   '</div>';
 }
 
+function statusConcluidoProjeto(st) {
+  var s = String(st || '').toLowerCase();
+  return /(done|closed|complete|conclu|finaliz|feito|resolved)/.test(s);
+}
+function isHeaderProjetoItem(it) {
+  var t = String(it.type || it.item_type || '').toLowerCase();
+  return /(header|section|group|phase|list)/.test(t) || it.is_header === true;
+}
+function isMilestoneProjetoItem(it) {
+  if (it.milestone === true || it.is_milestone === true) return true;
+  var t = String(it.type || it.item_type || '').toLowerCase();
+  return t.indexOf('milestone') >= 0 || t.indexOf('marco') >= 0;
+}
+function coletarDadosBrutosProjeto(proj) {
+  return {
+    projeto_id: proj.projeto_id || proj.id || null,
+    projeto_nome: proj.cliente || proj.projeto_nome || '',
+    fase_nome: proj.fase_nome || proj.fase || '',
+    itens: Array.isArray(proj.itens_fase) ? proj.itens_fase :
+      Array.isArray(proj.fase_itens) ? proj.fase_itens :
+      Array.isArray(proj.items_fase) ? proj.items_fase :
+      Array.isArray(proj.tasks) ? proj.tasks :
+      Array.isArray(proj.clickup_items) ? proj.clickup_items :
+      Array.isArray(proj.fase_items) ? proj.fase_items : [],
+    origem: 'clickup'
+  };
+}
+function normalizarEstruturaProjeto(dadosBrutos) {
+  var estrutura = {
+    cliente: dadosBrutos.projeto_nome || '',
+    projeto_id: dadosBrutos.projeto_id || '',
+    fases: [],
+    tasks: [],
+    marcos: [],
+    resumo: {
+      fases_total: 0, tasks_total: 0, tasks_concluidas: 0, tasks_pendentes: 0,
+      marcos_total: 0, marcos_concluidos: 0, marcos_pendentes: 0, progresso: 0, total_itens: 0
+    }
+  };
+  var itens = dadosBrutos.itens || [];
+  var parentComSub = {};
+  itens.forEach(function(it){
+    if (it && it.parent_id) parentComSub[it.parent_id] = true;
+  });
+  itens.forEach(function(it){
+    if (!it || isHeaderProjetoItem(it)) return;
+    var faseNome = it.fase_nome || it.list_name || it.group_name || dadosBrutos.fase_nome || '';
+    var item = {
+      id: it.id || it.task_id || '',
+      nome: it.nome || it.name || '',
+      tipo_normalizado: isMilestoneProjetoItem(it) ? 'marco' : 'task',
+      concluida: statusConcluidoProjeto(it.status),
+      fase_nome: faseNome,
+      origem: it.origem || dadosBrutos.origem || 'clickup',
+      status_original: it.status || ''
+    };
+    if (item.fase_nome && !estrutura.fases.some(function(f){ return f.nome === item.fase_nome; })) {
+      estrutura.fases.push({id: it.fase_id || it.list_id || '', nome: item.fase_nome});
+    }
+    // Política: subtarefas entram, mas se existem subtarefas o pai não entra para evitar dupla contagem.
+    var isParentComSub = item.id && parentComSub[item.id] === true;
+    if (isParentComSub) return;
+    if (item.tipo_normalizado === 'marco') estrutura.marcos.push(item);
+    else estrutura.tasks.push(item);
+  });
+  return estrutura;
+}
+function calcularResumoProjeto(estrutura) {
+  var totalTasks = estrutura.tasks.length;
+  var totalMarcos = estrutura.marcos.length;
+  var tasksConcluidas = estrutura.tasks.filter(function(t){ return t.concluida; }).length;
+  var marcosConcluidos = estrutura.marcos.filter(function(m){ return m.concluida; }).length;
+  return {
+    fases_total: estrutura.fases.length,
+    tasks_total: totalTasks,
+    tasks_concluidas: tasksConcluidas,
+    tasks_pendentes: totalTasks - tasksConcluidas,
+    marcos_total: totalMarcos,
+    marcos_concluidos: marcosConcluidos,
+    marcos_pendentes: totalMarcos - marcosConcluidos
+  };
+}
+function calcularProgressoProjeto(resumo) {
+  var totalTasks = Number(resumo && resumo.tasks_total || 0);
+  var totalMarcos = Number(resumo && resumo.marcos_total || 0);
+  var tasksConcluidas = Number(resumo && resumo.tasks_concluidas || 0);
+  var marcosConcluidos = Number(resumo && resumo.marcos_concluidos || 0);
+  var totalItens = totalTasks + totalMarcos;
+  var totalConcluidos = tasksConcluidas + marcosConcluidos;
+  var progresso = totalItens > 0 ? Math.round((totalConcluidos / totalItens) * 100) : 0;
+  return { progresso: progresso, total_itens: totalItens, total_concluidos: totalConcluidos };
+}
+function numeroProjeto(v) {
+  if (v === null || v === undefined || v === '') return null;
+  var n = Number(String(v).replace(',', '.'));
+  return isNaN(n) ? null : n;
+}
+function primeiroNumeroProjeto(obj, chaves) {
+  for (var i = 0; i < chaves.length; i++) {
+    var n = numeroProjeto(obj[chaves[i]]);
+    if (n !== null) return n;
+  }
+  return null;
+}
+function montarResumoProjeto(projetoBruto) {
+  var bruto = coletarDadosBrutosProjeto(projetoBruto);
+  var estrutura = normalizarEstruturaProjeto(bruto);
+  var resumo = calcularResumoProjeto(estrutura);
+  // Fallback para projetos sem estrutura de itens (mantém Camada 1 viva e evita card "zerado sem motivo").
+  if ((resumo.tasks_total + resumo.marcos_total) === 0) {
+    var tCon = primeiroNumeroProjeto(projetoBruto, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done']);
+    var tPen = primeiroNumeroProjeto(projetoBruto, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo']);
+    var mCon = primeiroNumeroProjeto(projetoBruto, ['marcos_concluidos','milestones_done','marcos_done']);
+    var mPen = primeiroNumeroProjeto(projetoBruto, ['marcos_pendentes','milestones_pending','marcos_todo']);
+    if (tCon !== null || tPen !== null || mCon !== null || mPen !== null) {
+      console.log('[RESUMO] Fallback numérico aplicado para projeto sem itens estruturados:', projetoBruto.cliente || '-');
+      resumo.tasks_concluidas = tCon !== null ? tCon : 0;
+      resumo.tasks_pendentes = tPen !== null ? tPen : 0;
+      resumo.tasks_total = resumo.tasks_concluidas + resumo.tasks_pendentes;
+      resumo.marcos_concluidos = mCon !== null ? mCon : 0;
+      resumo.marcos_pendentes = mPen !== null ? mPen : 0;
+      resumo.marcos_total = resumo.marcos_concluidos + resumo.marcos_pendentes;
+    }
+  }
+  if (!resumo.fases_total && (projetoBruto.fase_nome || projetoBruto.fase)) {
+    resumo.fases_total = 1;
+    if (!estrutura.fases.length) {
+      estrutura.fases = [{ id: projetoBruto.fase_id || '', nome: projetoBruto.fase_nome || projetoBruto.fase }];
+    }
+  }
+  var calc = calcularProgressoProjeto(resumo);
+  var resultado = {
+    indisponivel: false,
+    cliente: estrutura.cliente,
+    fases: estrutura.fases,
+    tasks: estrutura.tasks,
+    marcos: estrutura.marcos,
+    fases_total: resumo.fases_total,
+    tasks_total: resumo.tasks_total,
+    tasks_concluidas: resumo.tasks_concluidas,
+    tasks_pendentes: resumo.tasks_pendentes,
+    marcos_total: resumo.marcos_total,
+    marcos_concluidos: resumo.marcos_concluidos,
+    marcos_pendentes: resumo.marcos_pendentes,
+    progresso: calc.progresso,
+    total_itens: calc.total_itens
+  };
+  console.log('[RESUMO] Projeto:', resultado.cliente || projetoBruto.cliente || '-');
+  console.log('[RESUMO] Fases:', resultado.fases_total);
+  console.log('[RESUMO] Tasks:', resultado.tasks_total);
+  console.log('[RESUMO] Marcos:', resultado.marcos_total);
+  console.log('[PROGRESSO] Projeto:', resultado.cliente || projetoBruto.cliente || '-', resultado.progresso + '%');
+  return resultado;
+}
+function renderResumoProjeto(estrutura, p) {
+  var r = estrutura;
+  if (!r || r.indisponivel) {
+    return ''+
+      '<div style="margin:12px 0 6px">'+
+        '<div class="sec-l">Resumo do Projeto</div>'+
+        '<div class="log-box">Resumo indisponível.</div>'+
+      '</div>';
+  }
+  var fasesTxt = r.fases && r.fases.length ? r.fases.slice(0, 3).map(function(f){ return f.nome; }).join(' • ') : '-';
+  var linkHtml = p.projeto_link ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>' : '';
+  return ''+
+    '<div style="margin:12px 0 6px">'+
+      '<div class="sec-l">Resumo do Projeto</div>'+
+      '<div class="exp-grid">'+
+        '<div><div class="ef-l">Fases</div><div class="ef-v">'+r.fases_total+'</div></div>'+
+        '<div><div class="ef-l">Tasks</div><div class="ef-v">'+r.tasks_concluidas+' concl. / '+r.tasks_pendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Marcos</div><div class="ef-v">'+r.marcos_concluidos+' concl. / '+r.marcos_pendentes+' pend.</div></div>'+
+        '<div><div class="ef-l">Progresso</div><div class="ef-v">'+r.progresso+'%</div></div>'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
+        '<div><div class="ef-l">Fases (nomes)</div><div class="ef-v" style="font-size:11px">'+fasesTxt+'</div></div>'+
+      '</div>'+
+      '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-family:\'JetBrains Mono\',monospace" title="(tasks concl. + marcos concl.) / (tasks totais + marcos totais)">Total de itens considerados: '+r.total_itens+' • Regra: tasks + marcos</div>'+
+    '</div>';
+}
+function debugProjeto(estrutura) {
+  console.log('Projeto:', estrutura.cliente);
+  console.log('Fases:', estrutura.fases);
+  console.log('Tasks:', estrutura.tasks.map(function(t){ return {nome:t.nome, concluida:t.concluida, origem:t.origem}; }));
+  console.log('Marcos:', estrutura.marcos.map(function(m){ return {nome:m.nome, concluido:m.concluida, origem:m.origem}; }));
+  console.log('Resumo:', estrutura.resumo);
+}
+function temResumoEstrutural(p) {
+  if (!p || typeof p !== 'object') return false;
+  if (p.resumo_projeto && !p.resumo_projeto.indisponivel) return true;
+  if (Array.isArray(p.itens_fase) && p.itens_fase.length) return true;
+  if (Array.isArray(p.fase_itens) && p.fase_itens.length) return true;
+  if (Array.isArray(p.items_fase) && p.items_fase.length) return true;
+  if (Array.isArray(p.tasks) && p.tasks.length) return true;
+  if (Array.isArray(p.clickup_items) && p.clickup_items.length) return true;
+  var tCon = primeiroNumeroProjeto(p, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done']);
+  var tPen = primeiroNumeroProjeto(p, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo']);
+  var mCon = primeiroNumeroProjeto(p, ['marcos_concluidos','milestones_done','marcos_done']);
+  var mPen = primeiroNumeroProjeto(p, ['marcos_pendentes','milestones_pending','marcos_todo']);
+  return (tCon !== null || tPen !== null || mCon !== null || mPen !== null);
+}
+function buildGerencialProjeto(p) {
+  if (temResumoEstrutural(p)) {
+    try {
+      return renderResumoProjeto(montarResumoProjeto(p), p);
+    } catch (error) {
+      console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
+    }
+  }
+  var linkHtml = p && p.projeto_link
+    ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
+    : '<span style="color:var(--muted)">Sem link</span>';
+  return ''+
+    '<div style="margin:12px 0 6px">'+
+      '<div class="sec-l">Resumo do Projeto</div>'+
+      '<div class="log-box">Resumo indisponível: a origem atual não retornou estrutura de fases/tasks/marcos para este projeto.</div>'+
+      '<div class="exp-grid" style="margin-top:8px">'+
+        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
+      '</div>'+
+    '</div>';
+}
+
 // ---- Build table rows ----
 function buildRows(list, pfx) {
   if (!list || !list.length) return '<div class="empty">Nenhum projeto encontrado</div>';
@@ -799,10 +1003,12 @@ function buildRows(list, pfx) {
       barHtml='<div class="dbar"><div class="dbar-info'+(over?' exc':'')+'"><span>'+(over?'EXCEDIDO - ':'')+fn(real)+' de '+fn(cont)+' diarias</span><span>'+fn(p.diarias_rest)+' restantes</span></div><div class="dbar-bg"><div class="dbar-fill" style="width:'+w+'%;background:'+fc+'"></div></div></div>';
     }
     var prazoH = buildPrazoCards(p);
+    var gerH = buildGerencialProjeto(p);
     var logH = p.acompanhamento ? '<div class="sec-l">Acompanhamento</div><div class="log-box">'+p.acompanhamento+'</div>' : '';
     var obsH = p.obs ? '<div class="sec-l">Observacoes</div><div class="obs-box">'+p.obs+'</div>' : '';
     out += '<div class="prow '+info.rc+'" id="'+id+'" onclick="togRow(\''+id+'\')">';
-    out += '<div class="pcell"><div class="pname">'+p.cliente+'</div><div class="psub">'+(p.consultor||'\u2014')+' - '+p.mes+'</div></div>';
+    var projetoLinkBtn = p.projeto_link ? '<a class=\"project-link project-link-btn\" href=\"'+p.projeto_link+'\" target=\"_blank\" rel=\"noopener noreferrer\" onclick=\"event.stopPropagation()\">Abrir Projeto</a>' : '';
+    out += '<div class="pcell"><div class="pname-row"><div class="pname">'+p.cliente+'</div>'+projetoLinkBtn+'</div><div class="psub">'+(p.consultor||'\u2014')+' - '+p.mes+'</div></div>';
     out += '<div class="pcell"><span class="tag '+info.cls+'">'+sl(p.status)+'</span></div>';
     out += '<div class="pcell">'+tTag+'</div>';
     out += '<div class="pcell" style="font-size:12px;color:var(--text2)">'+(p.formato||'-')+'</div>';
@@ -817,8 +1023,7 @@ function buildRows(list, pfx) {
     out += '<div><div class="ef-l">Inicio Implant.</div><div class="ef-v">'+fd(p.data_inicio)+'</div></div>';
     out += '<div><div class="ef-l">Data Venda</div><div class="ef-v">'+fd(p.data_venda)+'</div></div>';
     out += '<div><div class="ef-l">KO Realiz.?</div><div class="ef-v">'+(p.kickoff||'-')+'</div></div>';
-    out += '<div><div class="ef-l">ClickUp?</div><div class="ef-v">'+(p.clickup||'-')+'</div></div>';
-    out += '</div>'+logH+obsH+'</div></div>';
+    out += '</div>'+gerH+logH+obsH+'</div></div>';
   }
   return out;
 }
@@ -1987,6 +2192,205 @@ function initAlert(){
 var _cbMap={};
 // URL do Google Apps Script - substitua pela sua URL apos implantar
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-bhGCUB5cIpw_o9tWRPVkcOnhdy2Z9rQr3BUc1CbN3gPqtHdOx_uzteAHuHAXm-fy/exec';
+var _projectLinkMap = {};
+var _projectLinkPromise = null;
+var _linkDebugCount = 0;
+var _projectLinkConflicts = [];
+var _projectRowsSemLink = [];
+var MESES_VALIDOS = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+var _abasMensaisLidas = [];
+var ABAS_GID_FIXAS = {
+  JAN: '1979811921',
+  FEV: '1661005461',
+  MAR: '1789638674',
+  ABR: '1749991249'
+};
+var _resumoLinksPorAba = {};
+
+function normalizeClienteKey(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function loadProjectLinksFromSheet() {
+  if (_projectLinkPromise) return _projectLinkPromise;
+  function parseGvizRows(txt) {
+    var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
+    if (!m) return [];
+    var payload = JSON.parse(m[1]);
+    return (((payload || {}).table || {}).rows || []);
+  }
+  function mergeRowsIntoMap(rows, mesOrigem, map) {
+    if (!_resumoLinksPorAba[mesOrigem]) _resumoLinksPorAba[mesOrigem] = {projetos: 0, comLink: 0};
+    (rows || []).forEach(function(row){
+      var c = row && row.c ? row.c : [];
+      var cliente = c[0] && c[0].v ? String(c[0].v).trim() : '';
+      var link = c[1] && c[1].v ? String(c[1].v).trim() : '';
+      if (!cliente) return;
+      _resumoLinksPorAba[mesOrigem].projetos += 1;
+      if (!link) {
+        _projectRowsSemLink.push({cliente: cliente, mes_origem: mesOrigem, motivo: 'Coluna W vazia'});
+        return;
+      }
+      _resumoLinksPorAba[mesOrigem].comLink += 1;
+      var key = normalizeClienteKey(cliente);
+      if (!key) return;
+      if (!map[key]) map[key] = [];
+      var jaExiste = map[key].some(function(x){ return x.link === link && x.mes_origem === mesOrigem; });
+      if (!jaExiste) map[key].push({link: link, mes_origem: mesOrigem});
+    });
+  }
+
+  _projectLinkPromise = Promise.resolve().then(function(){
+    var map = {};
+    _projectLinkConflicts = [];
+    _projectRowsSemLink = [];
+    _resumoLinksPorAba = {};
+    var abas = Object.keys(ABAS_GID_FIXAS).map(function(m){ return {title:m, gid:ABAS_GID_FIXAS[m]}; });
+    _abasMensaisLidas = abas.map(function(a){ return a.title; });
+    console.log('[LOAD DEBUG] Abas lidas:', _abasMensaisLidas);
+
+    return Promise.all(abas.map(function(aba){
+      var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
+      return fetch(url).then(function(r){
+        if (!r.ok) throw new Error('HTTP '+r.status+' ao ler aba '+aba.title);
+        return r.text();
+      }).then(function(txt){
+        var rows = parseGvizRows(txt);
+        mergeRowsIntoMap(rows, aba.title, map);
+        console.log('[LOAD DEBUG] Qtd projetos '+aba.title+' (linhas lidas):', rows.length);
+      }).catch(function(e){
+        console.error('Erro na aba '+aba.title+':', e);
+      });
+    })).then(function(){ return map; });
+  }).then(function(map){
+    Object.keys(map).forEach(function(key){
+      var linksDistintos = Array.from(new Set(map[key].map(function(x){ return x.link; })));
+      if (linksDistintos.length > 1) _projectLinkConflicts.push({cliente_normalizado: key, links: linksDistintos.join(' | ')});
+    });
+    _projectLinkMap = map;
+    var totalLinks = Object.keys(map).reduce(function(acc, k){ return acc + map[k].length; }, 0);
+    console.log('[LOAD DEBUG] Qtd total consolidada de links:', totalLinks);
+    Object.keys(_resumoLinksPorAba).forEach(function(m){
+      var r = _resumoLinksPorAba[m];
+      console.log('[LOAD DEBUG] '+m+': '+r.projetos+' projetos / '+r.comLink+' com link');
+    });
+    return map;
+  }).catch(function(error){
+    console.error('Erro ao consolidar dados do painel (links):', error);
+    _projectLinkPromise = null;
+    return _projectLinkMap || {};
+  });
+  return _projectLinkPromise;
+}
+
+function obterLinkProjeto(row, projeto) {
+  var valor =
+    (projeto && (projeto.projeto_link || projeto.link_projeto || projeto.link || projeto.url_projeto || projeto.projetoLink || projeto['LINK DO PROJETO'] || projeto.col_w || projeto.W)) ||
+    (row && (row.projeto_link || row.link_projeto || row.link || row.url_projeto || row.projetoLink || row['LINK DO PROJETO'] || row.col_w || row.W || row[22])) ||
+    '';
+  return String(valor || '').trim();
+}
+
+function normalizarUrlProjeto(url) {
+  var raw = String(url || '').trim();
+  if (!raw) return '';
+  if (!/^https?:\/\//i.test(raw)) raw = 'https://' + raw;
+  return raw;
+}
+
+function applyProjectLinks(projetos) {
+  return (projetos || []).filter(function(p){ return p && typeof p === 'object'; }).map(function(p){
+    var byParser = obterLinkProjeto(p._row, p);
+    var linksCliente = _projectLinkMap[normalizeClienteKey(p.cliente)] || [];
+    var byMes = linksCliente.find(function(x){ return (x.mes_origem || '') === String(p.mes || '').toUpperCase(); });
+    var byMap = (byMes || linksCliente[0] || {}).link || '';
+    p.mes_origem = (byMes || linksCliente[0] || {}).mes_origem || p.mes_origem || '';
+    p.projeto_link = normalizarUrlProjeto(byParser || byMap);
+    if (_linkDebugCount < 8 && p.cliente) {
+      console.log('[LINK DEBUG] Projeto final:', {
+        cliente: p.cliente,
+        bruto_row_22: (p._row && p._row[22]) ? p._row[22] : '',
+        bruto_obj: {projeto_link: p.projeto_link, link_projeto: p.link_projeto, link: p.link, url_projeto: p.url_projeto},
+        link_final: p.projeto_link || '(vazio)'
+      });
+      _linkDebugCount++;
+    }
+    return p;
+  });
+}
+
+function prepararProjetosBase(projetos) {
+  var lista = Array.isArray(projetos) ? projetos : [];
+  return lista.filter(function(p){ return p && typeof p === 'object'; }).map(function(p){
+    p.cliente = String(p.cliente || '').trim();
+    p.consultor = String(p.consultor || '').trim();
+    p.mes = String(p.mes || '').toUpperCase().trim();
+    p.status = String(p.status || '').trim();
+    p.tipo = String(p.tipo || '').trim();
+    p.formato = String(p.formato || '').trim();
+    return p;
+  });
+}
+function listarAbasBase(projetos) {
+  var ordemPadrao = Object.keys(ABAS_GID_FIXAS);
+  var presentes = {};
+  (projetos || []).forEach(function(p){
+    var m = String((p && p.mes) || '').toUpperCase().trim();
+    if (m) presentes[m] = true;
+  });
+  var extras = Object.keys(presentes).filter(function(m){ return ordemPadrao.indexOf(m) < 0; }).sort();
+  return ordemPadrao.concat(extras);
+}
+function carregarBaseProjetos(projetosRaw) {
+  var base = prepararProjetosBase(projetosRaw);
+  var abasLidas = listarAbasBase(base);
+  console.log('[BASE] Abas lidas:', abasLidas);
+  base = applyProjectLinks(base);
+  var projetosPorAba = {};
+  var linksValidosPorAba = {};
+  abasLidas.forEach(function(m){
+    projetosPorAba[m] = base.filter(function(p){ return String(p.mes || '').toUpperCase() === m; }).length;
+    linksValidosPorAba[m] = base.filter(function(p){ return String(p.mes || '').toUpperCase() === m && !!p.projeto_link; }).length;
+  });
+  console.log('[BASE] Projetos por aba:', projetosPorAba);
+  console.log('[BASE] Links válidos por aba:', linksValidosPorAba);
+  console.log('[BASE] Total consolidado:', base.length);
+  return {
+    projetos: base,
+    abas_lidas: abasLidas,
+    projetos_por_aba: projetosPorAba,
+    links_validos_por_aba: linksValidosPorAba,
+    total: base.length
+  };
+}
+
+function runProjectLinkAudit(projetos) {
+  var lista = projetos || [];
+  var comLinkPlanilhaSemBotao = [];
+  var semLinkDeFato = [];
+  lista.forEach(function(p){
+    var key = normalizeClienteKey(p.cliente);
+    var linksPlanilha = _projectLinkMap[key] || [];
+    var linkPlanilha = linksPlanilha.length ? linksPlanilha[0].link : '';
+    var linkFinal = p.projeto_link || '';
+    if (!linkFinal && linkPlanilha) comLinkPlanilhaSemBotao.push({cliente: p.cliente, mes: p.mes || '-', links_planilha: linksPlanilha.map(function(x){ return x.mes_origem+': '+x.link; }).join(' | ')});
+    if (!linkFinal && !linkPlanilha) semLinkDeFato.push({cliente: p.cliente, status: p.status || '-', consultor: p.consultor || '-'});
+  });
+
+  console.log('[LINK AUDIT] Resumo:', {
+    total_projetos: lista.length,
+    com_link_planilha_sem_botao: comLinkPlanilhaSemBotao.length,
+    sem_link_de_fato: semLinkDeFato.length,
+    conflitos_duplicidade: _projectLinkConflicts.length,
+    linhas_w_vazia: _projectRowsSemLink.length
+  });
+  if (comLinkPlanilhaSemBotao.length) console.table(comLinkPlanilhaSemBotao.slice(0, 100));
+  if (semLinkDeFato.length) console.table(semLinkDeFato.slice(0, 100));
+  if (_projectLinkConflicts.length) console.table(_projectLinkConflicts.slice(0, 100));
+}
 
 function _limparJsonp(cb) {
   try { delete window[cb]; } catch(e){}
@@ -1995,6 +2399,7 @@ function _limparJsonp(cb) {
 }
 
 function loadAll() {
+  console.log('[INIT] Iniciando carga principal do painel');
   var nd = document.getElementById('nav-date');
   var lo = document.getElementById('load-overlay');
   var lt = document.getElementById('load-text');
@@ -2011,48 +2416,65 @@ function loadAll() {
     if (nd) nd.textContent = 'Atualizando...';
   }
 
-  if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('AK') < 0) {
-    _finalizarLoad([], isRefresh, 'local');
-    return;
-  }
-
-  var done  = false;
-  var cbName = '_cb' + Date.now();
-
-  // Timeout: 12s
-  var timer = setTimeout(function() {
-    if (done) return;
-    done = true;
-    _limparJsonp(cbName);
-    _finalizarLoad([], isRefresh, 'timeout');
-  }, 12000);
-
-  window[cbName] = function(resp) {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _limparJsonp(cbName);
-    if (resp && resp.projetos && resp.projetos.length > 0) {
-      _finalizarLoad(resp.projetos, isRefresh, 'ok');
-    } else {
-      _finalizarLoad([], isRefresh, 'vazio');
+  try {
+    if (!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf('AK') < 0) {
+      console.warn('[INIT] URL do Apps Script ausente/inválida. Usando base local.');
+      _finalizarLoad([], isRefresh, 'local');
+      return;
     }
-  };
 
-  var s = document.createElement('script');
-  s.id  = '_jsonp_' + cbName;
-  s.src = APPS_SCRIPT_URL + '?mes=ALL&callback=' + cbName;
-  s.onerror = function() {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _limparJsonp(cbName);
-    _finalizarLoad([], isRefresh, 'erro');
-  };
-  document.head.appendChild(s);
+    console.log('[1] Buscando planilha/origem via Apps Script');
+    var done  = false;
+    var cbName = '_cb' + Date.now();
+
+    // Timeout: 12s
+    var timer = setTimeout(function() {
+      if (done) return;
+      done = true;
+      _limparJsonp(cbName);
+      console.error('[INIT] Timeout na carga principal (12s)');
+      _finalizarLoad([], isRefresh, 'timeout');
+    }, 12000);
+
+    window[cbName] = function(resp) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      _limparJsonp(cbName);
+      var qtd = resp && Array.isArray(resp.projetos) ? resp.projetos.length : 0;
+      console.log('[2] Resposta Apps Script recebida. Projetos brutos:', qtd);
+      if (resp && resp.projetos && resp.projetos.length > 0) {
+        _finalizarLoad(resp.projetos, isRefresh, 'ok');
+      } else {
+        _finalizarLoad([], isRefresh, 'vazio');
+      }
+    };
+
+    var s = document.createElement('script');
+    s.id  = '_jsonp_' + cbName;
+    s.src = APPS_SCRIPT_URL + '?mes=ALL&callback=' + cbName;
+    s.onerror = function() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      _limparJsonp(cbName);
+      console.error('[INIT] Erro de rede/JSONP ao carregar Apps Script');
+      _finalizarLoad([], isRefresh, 'erro');
+    };
+    document.head.appendChild(s);
+  } catch (error) {
+    console.error('[INIT] Erro inesperado na inicialização da carga principal:', error);
+    _finalizarLoad([], isRefresh, 'init_error');
+  }
+}
+
+
+function normalizeProjetoLink(p) {
+  return normalizarUrlProjeto(obterLinkProjeto(p && p._row, p));
 }
 
 function _finalizarLoad(projetos, isRefresh, motivo) {
+  console.log('[3] Finalizando carga. Motivo:', motivo);
   var nd = document.getElementById('nav-date');
   var lo = document.getElementById('load-overlay');
   var rb = document.getElementById('refresh-bar');
@@ -2063,18 +2485,42 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     setTimeout(function(){ rb.style.display='none'; rb.style.transform='scaleX(0)'; }, 500);
   }
 
-  var temDados = projetos && projetos.length > 0;
-  if (temDados) {
-    DATA.projetos = projetos;
+  try {
+    var baseRaw = prepararProjetosBase(projetos);
+    var temDados = baseRaw.length > 0;
+    if (temDados) {
+    console.log('[4] Linhas processadas:', baseRaw.length);
+    var baseInfo = carregarBaseProjetos(baseRaw);
+    console.log('[5] Projetos normalizados:', baseInfo.projetos.length);
+    DATA.projetos = baseInfo.projetos;
+    console.log('[6] Consolidado final:', DATA.projetos.length);
+    console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
+    ['JAN','FEV','MAR','ABR'].forEach(function(m){
+      var n = DATA.projetos.filter(function(x){ return String(x.mes || '').toUpperCase() === m; }).length;
+      var cLink = DATA.projetos.filter(function(x){ return String(x.mes || '').toUpperCase() === m && x.projeto_link; }).length;
+      console.log('[LOAD DEBUG] '+m+': '+n+' projetos / '+cLink+' com link no consolidado final');
+    });
+    if (DATA.projetos.length) console.log('[LOAD DEBUG] Exemplo projeto consolidado:', DATA.projetos[0]);
     var now = new Date();
     var hora = now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
     var data = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
     if (nd) nd.textContent = 'Planilha: ' + data + ' ' + hora;
     if (isRefresh) showToast(projetos.length + ' projetos atualizados \u2714', 'ok');
-  } else {
-    if (nd) nd.textContent = 'Dados locais (' + DATA.projetos.length + ' proj.)';
-    if (motivo === 'timeout') showToast('Planilha demorou \u2014 dados locais exibidos', 'err');
-    else if (motivo === 'erro') showToast('Erro de conex\u00E3o \u2014 dados locais exibidos', 'err');
+    } else {
+      var baseLocalInfo = carregarBaseProjetos(DATA.projetos);
+      DATA.projetos = baseLocalInfo.projetos;
+      if (nd) nd.textContent = 'Falha ao carregar planilha (' + motivo + ')';
+      if (motivo === 'timeout') showToast('Planilha demorou — exibindo base local', 'err');
+      else if (motivo === 'erro') showToast('Erro de conexão — exibindo base local', 'err');
+      else if (motivo === 'vazio') showToast('Planilha respondeu sem projetos', 'err');
+      else if (motivo === 'init_error') showToast('Falha na inicialização da carga', 'err');
+    }
+    runProjectLinkAudit(DATA.projetos);
+  } catch (error) {
+    console.error('[INIT] Erro ao consolidar/renderizar carga principal:', error);
+    DATA.projetos = prepararProjetosBase(DATA.projetos);
+    if (nd) nd.textContent = 'Erro ao consolidar dados';
+    showToast('Erro ao consolidar dados — base local preservada', 'err');
   }
 
   if (isRefresh) {
@@ -2102,233 +2548,41 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
 var MESES=['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
 
 
-// \u2500\u2500 ABA CLICKUP \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-var _ckCache  = {};
-var _ckFilter = 'all';
-
-function _nck(s) {
-  return (s||'').toUpperCase()
-    .replace(/[\u00C0-\u00C5]/g,'A').replace(/[\u00C8-\u00CB]/g,'E')
-    .replace(/[\u00CC-\u00CF]/g,'I').replace(/[\u00D2-\u00D6]/g,'O')
-    .replace(/[\u00D9-\u00DC]/g,'U').replace(/\u00C7/g,'C')
-    .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-}
-
-function initCk() {
-  var el = document.getElementById('ck-content');
-  if (!el) return;
-  renderCkList(filteredProj());
-}
-
-function renderCkList(proj) {
-  var el = document.getElementById('ck-content');
-  if (!proj.length) { el.innerHTML = '<div class="empty">Sem projetos</div>'; return; }
-
-  var lista = proj.map(function(p) {
-    var ck = _ckCache[_nck(p.cliente)] || null;
-    var score = 0, riscos = [], acoes = [];
-
-    // Riscos da planilha
-    if (!p.consultor || !p.consultor.trim()) { riscos.push({t:'crit',msg:'Sem consultor atribu\u00eddo'}); score+=100; acoes.push('Alocar consultor imediatamente'); }
-    if (p.status && p.status.toLowerCase().indexOf('atrasado')>=0) { riscos.push({t:'crit',msg:'Status Atrasado'}); score+=80; acoes.push('Contato urgente \u2014 mapear bloqueios'); }
-    if (p.kickoff && p.kickoff.toUpperCase()==='N\u00C3O') { riscos.push({t:'crit',msg:'Kick-off n\u00e3o realizado'}); score+=60; acoes.push('Agendar kick-off'); }
-    if (p.diarias_rest!==null && p.diarias_rest<-1) { riscos.push({t:'crit',msg:'Di\u00e1rias excedidas: '+Math.abs(p.diarias_rest)}); score+=50; acoes.push('Revisar escopo'); }
-
-    // Dados reais do CK
-    var dias=null, totalF=0, doneF=0, fPend=[], fDone=[], ckCons=null, folderUrl=null;
-    if (ck) {
-      dias=ck.diasSemUpdate; ckCons=ck.consultor; folderUrl=ck.folderUrl;
-      ck.fases.forEach(function(f){ if(f.done) fDone.push(f); else fPend.push(f); });
-      totalF=ck.fases.length; doneF=fDone.length;
-      if (dias>=21) { riscos.push({t:'crit',msg:dias+'d sem atualiza\u00e7\u00e3o no ClickUp'}); score+=70; acoes.push('Cobrar consultor \u2014 '+dias+' dias parado'); }
-      else if (dias>=14) { riscos.push({t:'warn',msg:dias+'d sem atualiza\u00e7\u00e3o'}); score+=35; }
-      else if (dias>=7)  { riscos.push({t:'warn',msg:dias+'d sem atualiza\u00e7\u00e3o'}); score+=15; }
-    } else {
-      dias = !p.consultor?99:p.status&&p.status.toLowerCase().indexOf('atrasado')>=0?21:p.kickoff&&p.kickoff.toUpperCase()==='N\u00C3O'?14:p.status&&p.status.toLowerCase().indexOf('aguardando')>=0?7:2;
-      if (!p.acompanhamento||!p.acompanhamento.trim()) { riscos.push({t:'warn',msg:'Sem acompanhamento registrado'}); score+=15; }
-    }
-
-    return {p:p,score:score,dias:dias,riscos:riscos,acoes:acoes,
-            totalF:totalF,doneF:doneF,fPend:fPend,fDone:fDone,
-            ckCons:ckCons,folderUrl:folderUrl,temCK:!!ck};
-  }).sort(function(a,b){return b.score-a.score;});
-
-  var nCrit=lista.filter(function(x){return x.score>=60;}).length;
-  var nWarn=lista.filter(function(x){return x.score>0&&x.score<60;}).length;
-  var nOk  =lista.filter(function(x){return x.score===0;}).length;
-  var nCK  =lista.filter(function(x){return x.temCK;}).length;
-
-  document.getElementById('n-ck').textContent = nCrit>0?nCrit:'';
-  document.getElementById('kpis-ck').innerHTML =
-    kpi('A\u00e7\u00e3o Imediata',nCrit,nCrit>0?'r':'g')+
-    kpi('Monitorar',nWarn,nWarn>0?'o':'g')+
-    kpi('Saud\u00e1vel',nOk,'g')+
-    kpi('Dados CK reais',nCK,nCK>0?'b':'d');
-
-  var fbar = document.getElementById('ck-filters');
-  fbar.innerHTML = '';
-  var btns = [['all','Todos',lista.length],['crit','\uD83D\uDD34 A\u00e7\u00e3o',nCrit],['warn','\uD83D\uDFE1 Monitorar',nWarn],['ok','\uD83D\uDFE2 Saud\u00e1vel',nOk]];
-  btns.forEach(function(b) {
-    var btn = document.createElement('button');
-    btn.className = 'fbt' + (_ckFilter===b[0]?' on':'');
-    btn.textContent = b[1]+' ('+b[2]+')';
-    btn.dataset.f = b[0];
-    btn.onclick = function(){ _ckFilter=this.dataset.f; renderCkList(filteredProj()); };
-    fbar.appendChild(btn);
-  });
-  var buscarBtn = document.createElement('button');
-  buscarBtn.style.cssText = 'margin-left:auto;padding:6px 16px;border-radius:8px;border:1.5px solid var(--nav);background:var(--nav);color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer';
-  buscarBtn.textContent = nCK>0?'\u21BA Atualizar ClickUp ('+nCK+')':'\uD83D\uDD17 Buscar dados do ClickUp';
-  buscarBtn.onclick = ckBuscar;
-  fbar.appendChild(buscarBtn);
-
-  var filtrado=lista;
-  if (_ckFilter==='crit') filtrado=lista.filter(function(x){return x.score>=60;});
-  else if (_ckFilter==='warn') filtrado=lista.filter(function(x){return x.score>0&&x.score<60;});
-  else if (_ckFilter==='ok') filtrado=lista.filter(function(x){return x.score===0;});
-
-  el.innerHTML = filtrado.map(function(item,i) {
-    var p=item.p, cc=ccol(p.consultor||''), si2=si(p.status), bid='ckb'+i;
-    var cls=item.score>=60?'crit':item.score>0?'warn':'ok';
-    var lbl=item.score>=60?'A\u00e7\u00e3o Imediata':item.score>0?'Monitorar':'Saud\u00e1vel';
-    var prog=item.totalF>0?Math.round(item.doneF/item.totalF*100):0;
-
-    // CK block
-    var ckB = item.temCK ?
-      '<div class="ck-sec">'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'+
-          '<b style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">\uD83D\uDD17 ClickUp \u2014 dados reais</b>'+
-          '<span style="font-size:12px;font-weight:800;color:'+(item.dias>=21?'var(--red)':item.dias>=14?'var(--orange)':item.dias>=7?'var(--yellow)':'var(--green)')+'">'+(item.dias===0?'Hoje':item.dias+'d sem update')+'</span>'+
-        '</div>'+
-        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'+
-          '<div style="flex:1;height:8px;background:var(--border);border-radius:4px"><div style="height:100%;width:'+prog+'%;background:'+(prog>=75?'var(--green)':prog>=40?'var(--orange)':'var(--red)')+';border-radius:4px"></div></div>'+
-          '<span style="font-size:12px;font-weight:800;color:'+(prog>=75?'var(--green)':prog>=40?'var(--orange)':'var(--red)')+'">'+prog+'%</span>'+
-          '<span style="font-size:11px;color:var(--muted)">'+item.doneF+'/'+item.totalF+' fases</span>'+
-        '</div>'+
-        '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Assignee CK: <b style="color:var(--text)">'+(item.ckCons||'N\u00e3o atribu\u00eddo')+'</b></div>'+
-        (item.fPend.length?'<div style="margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:var(--orange);text-transform:uppercase;margin-bottom:4px">\u23F3 Pendentes ('+item.fPend.length+')</div>'+item.fPend.map(function(f){return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fef9f0;border:1px solid rgba(249,115,22,.2);border-radius:6px;margin-bottom:3px"><span style="font-size:10px;background:var(--orange);color:#fff;border-radius:4px;padding:1px 7px;flex-shrink:0">'+f.status+'</span><span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+f.nome+'</span><span style="font-size:10px;color:var(--muted);flex-shrink:0">'+(f.assignee?f.assignee.split(' ')[0]:'sem assignee')+'</span></div>';}).join('')+'</div>':'')+
-        (item.fDone.length?'<div><div style="font-size:10px;font-weight:800;color:var(--green);text-transform:uppercase;margin-bottom:4px">\u2705 Conclu\u00eddas ('+item.fDone.length+')</div><div style="display:flex;flex-wrap:wrap;gap:4px">'+item.fDone.map(function(f){return '<span style="font-size:10px;background:#f0fff4;color:#276749;border:1px solid rgba(56,161,105,.2);border-radius:20px;padding:2px 8px">\u2714 '+f.nome+'</span>';}).join('')+'</div></div>':'')+
-      '</div>'
-      :
-      '<div class="ck-sec" style="text-align:center;padding:16px"><div style="font-size:12px;color:var(--muted)">Clique em <b>Buscar dados do ClickUp</b> para ver fases e \u00faltima atualiza\u00e7\u00e3o real</div></div>';
-
-    // Riscos
-    var rB = item.riscos.length?
-      '<div class="ck-sec"><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--red);margin-bottom:6px">\u26A0 Riscos ('+item.riscos.length+')</div>'+
-      item.riscos.map(function(r){return '<div style="display:flex;gap:8px;align-items:flex-start;background:'+(r.t==='crit'?'#fcebeb':'#faeeda')+';border-radius:7px;padding:6px 10px;margin-bottom:4px"><span>'+(r.t==='crit'?'\uD83D\uDD34':'\uD83D\uDFE1')+'</span><span style="font-size:12px;color:'+(r.t==='crit'?'#a32d2d':'#854f0b')+';font-weight:600;line-height:1.4">'+r.msg+'</span></div>';}).join('')+'</div>':'';
-
-    // Acoes
-    var aB = item.acoes.length?
-      '<div class="ck-sec" style="background:#ebf8ff"><div style="font-size:10px;font-weight:800;text-transform:uppercase;color:var(--blue);margin-bottom:6px">\u2192 O que fazer agora</div>'+
-      item.acoes.map(function(a,ai){return '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:4px"><div style="width:18px;height:18px;border-radius:50%;background:var(--blue);color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">'+(ai+1)+'</div><span style="font-size:12px;color:#2c5282;line-height:1.5">'+a+'</span></div>';}).join('')+'</div>':'';
-
-    // Grid dados planilha
-    var kRed=p.diarias_rest!==null&&p.diarias_rest<0?'var(--red)':'var(--text)';
-    var pB='<div class="ck-sec"><div class="ck-grid">'+
-      '<div class="ck-stat"><div class="ck-stat-l">Consultor</div><div class="ck-stat-v" style="color:'+cc+'">'+(p.consultor||'N\u00e3o definido')+'</div></div>'+
-      '<div class="ck-stat"><div class="ck-stat-l">Vendedor</div><div class="ck-stat-v">'+(p.vendedor||'-')+'</div></div>'+
-      '<div class="ck-stat"><div class="ck-stat-l">Di\u00e1rias rest.</div><div class="ck-stat-v" style="color:'+kRed+'">'+(p.diarias_rest!==null?p.diarias_rest:'-')+'</div></div>'+
-      '<div class="ck-stat"><div class="ck-stat-l">Kickoff</div><div class="ck-stat-v" style="color:'+(p.kickoff&&p.kickoff.toUpperCase()==='N\u00C3O'?'var(--red)':'var(--green)')+'">'+(p.kickoff||'-')+'</div></div>'+
-    '</div></div>';
-
-    // Acompanhamento
-    var acB = p.acompanhamento&&p.acompanhamento.trim()?
-      '<div class="ck-sec"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">\uD83D\uDCAC Acompanhamento (planilha)</div><div style="font-size:13px;color:var(--text2);line-height:1.6;font-style:italic">&ldquo;'+p.acompanhamento+'&rdquo;</div></div>':
-      '<div class="ck-sec" style="background:#fff5f5"><div style="font-size:12px;color:var(--red);font-weight:600">\uD83D\uDEAB Sem acompanhamento registrado</div></div>';
-
-    // Link
-    var lkUrl = item.folderUrl;
-    var lkB='<div class="ck-sec" style="display:flex;align-items:center;gap:10px">'+
-      (lkUrl?
-        '<a href="'+lkUrl+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;background:var(--nav);color:#fff;padding:6px 14px;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none">\uD83D\uDD17 Abrir projeto no ClickUp</a>':
-        '<a href="https://app.clickup.com/9007083069/search?q='+encodeURIComponent(p.cliente)+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:6px;background:var(--surf2);color:var(--nav);border:1.5px solid var(--nav);padding:6px 14px;border-radius:7px;font-size:11px;font-weight:700;text-decoration:none">\uD83D\uDD0D Buscar no ClickUp</a>')+
-      '<span style="font-size:10px;color:'+(item.temCK?'var(--green)':'var(--muted)')+';font-weight:600">'+(item.temCK?'\u2705 Dados reais':'Clique em Buscar para dados reais')+'</span>'+
-    '</div>';
-
-    return '<div class="ck-card">'+
-      '<div class="ck-head" id="ck-h-'+bid+'" onclick="var b=document.getElementById(\'' + bid + '\');b.classList.toggle(\'on\')">' +
-        '<div style="flex:1;min-width:0">'+
-          '<div class="ck-nome">'+p.cliente+'</div>'+
-          '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+
-            '<span style="color:'+cc+';font-weight:700">'+(p.consultor||'\u26A0 Sem consultor')+'</span>'+
-            ' \u2022 '+p.mes+' \u2022 <span class="tag '+si2.cls+'" style="font-size:10px">'+sl(p.status)+'</span>'+
-            (item.temCK?' \u2022 <span style="color:'+(item.dias>=14?'var(--red)':item.dias>=7?'var(--orange)':'var(--green)')+';font-size:10px;font-weight:700">'+item.dias+'d CK</span>':'')+
-          '</div>'+
-        '</div>'+
-        (item.temCK&&item.totalF>0?'<span style="font-size:11px;font-weight:800;color:'+(prog>=75?'var(--green)':prog>=40?'var(--orange)':'var(--red)')+';margin-right:6px">'+prog+'%</span>':'')+
-        '<span class="ck-badge '+cls+'">'+lbl+'</span>'+
-        '<span style="color:var(--muted);font-size:11px;margin-left:6px">\u25BC</span>'+
-      '</div>'+
-      '<div class="ck-body" id="'+bid+'">'+ckB+rB+aB+pB+acB+lkB+'</div>'+
-    '</div>';
-  }).join('');
-}
-
-function ckBuscar() {
-  var el = document.getElementById('ck-content');
-  el.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:28px;margin-bottom:12px">\uD83D\uDD17</div><div style="font-size:14px;font-weight:600;margin-bottom:6px">Buscando dados do ClickUp...</div><div style="font-size:12px;color:var(--muted)">Via Apps Script \u2014 pode levar at\u00e9 30 segundos</div></div>';
-
-  var cbName = '_ckCb' + Date.now();
-  var done   = false;
-
-  var timer = setTimeout(function() {
-    if (done) return;
-    done = true;
-    _ckClean(cbName);
-    showToast('Timeout \u2014 Apps Script demorou mais de 30s', 'err');
-    renderCkList(filteredProj());
-  }, 30000);
-
-  window[cbName] = function(resp) {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _ckClean(cbName);
-    if (resp && resp.erro) { showToast('Erro: ' + resp.erro, 'err'); renderCkList(filteredProj()); return; }
-    var list = (resp && resp.clickup) || [];
-    if (!list.length) { showToast('Nenhum dado retornado do ClickUp', 'err'); renderCkList(filteredProj()); return; }
-    var n = 0;
-    list.forEach(function(item) {
-      if (!item || !item.cliente) return;
-      var fases = (item.fases || []).map(function(f) {
-        var st = String(f.status || '').toLowerCase();
-        return { nome: f.nome || f.name || '', status: f.status || '', done: !!(f.done || /done|closed|conclu/i.test(st)), assignee: f.assignee || null };
-      });
-      _ckCache[_nck(item.cliente)] = { diasSemUpdate: typeof item.diasSemUpdate==='number'?item.diasSemUpdate:99, consultor: item.consultor||null, fases: fases, folderUrl: item.folderUrl||null };
-      n++;
-    });
-    showToast(n + ' projetos com dados reais do ClickUp!', 'ok');
-    renderCkList(filteredProj());
-  };
-
-  var s = document.createElement('script');
-  s.id  = '_cks_' + cbName;
-  s.src = APPS_SCRIPT_URL + '?action=clickup&callback=' + cbName;
-  s.onerror = function() {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    _ckClean(cbName);
-    showToast('Erro ao chamar Apps Script', 'err');
-    renderCkList(filteredProj());
-  };
-  document.head.appendChild(s);
-}
-
-function _ckClean(cb) {
-  try { delete window[cb]; } catch(e) {}
-  var s = document.getElementById('_cks_' + cb);
-  if (s && s.parentNode) s.parentNode.removeChild(s);
-}
-
 // ---- Init ----
 window._logModo = window._logModo || 'geral';
 window._logPeriodo = window._logPeriodo || '30';
 window._jaCarregou = false;
-// Mostra overlay e busca Sheets \u2014 nao renderiza nada antes
-loadAll();
+function inicializarPainel() {
+  try {
+    console.log('[INIT] Inicialização completa iniciada');
+    var baseLocal = carregarBaseProjetos(prepareBaseLocal(DATA.projetos || []));
+    DATA.projetos = baseLocal.projetos;
+    console.log('[INIT] Base local pronta:', DATA.projetos.length);
+    loadProjectLinksFromSheet().then(function(){
+      console.log('[INIT] Links por aba carregados');
+      var baseComLinks = carregarBaseProjetos(DATA.projetos || []);
+      DATA.projetos = baseComLinks.projetos;
+      runProjectLinkAudit(DATA.projetos);
+      if (window._jaCarregou) renderAll();
+    }).catch(function(err){
+      console.error('[INIT] Falha ao carregar links por aba:', err);
+    });
+    loadAll();
+  } catch (error) {
+    console.error('[INIT] Erro ao inicializar painel:', error);
+    var nd = document.getElementById('nav-date');
+    var lo = document.getElementById('load-overlay');
+    var lt = document.getElementById('load-text');
+    if (nd) nd.textContent = 'Erro ao carregar';
+    if (lt) lt.textContent = 'Erro ao carregar dados do painel';
+    if (lo) lo.style.display = 'flex';
+  }
+}
+function prepareBaseLocal(projetos) {
+  return prepararProjetosBase(projetos);
+}
+// Mostra overlay e busca Sheets — não renderiza nada antes
+inicializarPainel();
 </script>
 </body>
-</html</div>
-</div>
->
+</html>
