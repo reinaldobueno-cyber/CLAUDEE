@@ -926,26 +926,31 @@ function obterTextoPlanilha(obj, chaves) {
   return '';
 }
 function montarResumoPlanilha(projetoBruto) {
-  var tCon = obterNumeroPlanilha(projetoBruto, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done','concluidas_tasks','tasks_completed']) || 0;
-  var tPen = obterNumeroPlanilha(projetoBruto, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo','pendentes_tasks','tasks_pending']) || 0;
-  var mCon = obterNumeroPlanilha(projetoBruto, ['marcos_concluidos','milestones_done','marcos_done','milestones_completed']) || 0;
-  var mPen = obterNumeroPlanilha(projetoBruto, ['marcos_pendentes','milestones_pending','marcos_todo','milestones_todo']) || 0;
-  var fTot = obterNumeroPlanilha(projetoBruto, ['fases_total','phases_total','total_fases']) || 0;
-  var diasSemAtualizacao = obterNumeroPlanilha(projetoBruto, ['dias_sem_atualizacao','dias_sem_update','dias_sem_movimento']);
-  var progressoOrigem = obterNumeroPlanilha(projetoBruto, ['progresso','progresso_percentual','percentual_progresso','progress']);
+  var p = normalizarProjetoPlanilha(projetoBruto || {});
+  var tCon = Number(p.tasks_concluidas || 0);
+  var tPen = Number(p.tasks_pendentes || 0);
+  var mCon = Number(p.marcos_concluidos || 0);
+  var mPen = Number(p.marcos_pendentes || 0);
+  var fTot = obterNumeroPlanilha(p, ['fases_total','phases_total','total_fases']) || 0;
+  var diasSemAtualizacao = (p.dias_sem_atualizacao !== null && p.dias_sem_atualizacao !== undefined) ? Number(p.dias_sem_atualizacao) : null;
+  var progressoOrigem = (p.progresso !== null && p.progresso !== undefined) ? Number(p.progresso) : null;
 
   var tasksTotal = tCon + tPen;
   var marcosTotal = mCon + mPen;
   var totalItens = tasksTotal + marcosTotal;
   var progressoCalc = totalItens > 0 ? Math.round(((tCon + mCon) / totalItens) * 100) : 0;
   var progressoFinal = (progressoOrigem !== null && progressoOrigem !== undefined) ? Number(progressoOrigem) : progressoCalc;
+  if ((diasSemAtualizacao === null || isNaN(diasSemAtualizacao)) && p.data_ultima_atualizacao) {
+    var d = parseD(p.data_ultima_atualizacao);
+    if (d) diasSemAtualizacao = Math.max(0, diffD(d, new Date()));
+  }
 
   var temDados = tasksTotal > 0 || marcosTotal > 0 || fTot > 0 || (diasSemAtualizacao !== null && diasSemAtualizacao !== undefined);
   if (!temDados) return { indisponivel: true };
 
   return {
     indisponivel: false,
-    cliente: projetoBruto.cliente || '',
+    cliente: p.cliente || '',
     fases: [],
     tasks: [],
     marcos: [],
@@ -2390,6 +2395,59 @@ function normalizarUrlProjeto(url) {
   return raw;
 }
 
+function valorPorAlias(obj, aliases) {
+  for (var i = 0; i < aliases.length; i++) {
+    var k = aliases[i];
+    if (obj && obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') return obj[k];
+  }
+  return null;
+}
+
+function normalizarProjetoPlanilha(p) {
+  var projeto = Object.assign({}, p || {});
+  var cliente = valorPorAlias(projeto, ['cliente','nome_cliente']);
+  var consultor = valorPorAlias(projeto, ['consultor','consultora','assignee','responsavel']);
+  var mes = valorPorAlias(projeto, ['mes','mes_origem']);
+  var status = valorPorAlias(projeto, ['status','status_projeto']);
+  var tipo = valorPorAlias(projeto, ['tipo','tipo_projeto']);
+  var formato = valorPorAlias(projeto, ['formato','modalidade']);
+
+  var diariasTotal = numeroProjeto(valorPorAlias(projeto, ['diarias_total','diarias_cont','diarias_contratadas']));
+  var diariasRealizadas = numeroProjeto(valorPorAlias(projeto, ['diarias_realizadas','diarias_real','diarias_consumidas']));
+  var tasksConcluidas = numeroProjeto(valorPorAlias(projeto, ['tasks_concluidas','tarefas_concluidas','tasks_done','tarefas_done']));
+  var tasksPendentes = numeroProjeto(valorPorAlias(projeto, ['tasks_pendentes','tarefas_pendentes','tasks_todo','tarefas_todo']));
+  var marcosConcluidos = numeroProjeto(valorPorAlias(projeto, ['marcos_concluidos','milestones_done','marcos_done']));
+  var marcosPendentes = numeroProjeto(valorPorAlias(projeto, ['marcos_pendentes','milestones_pending','marcos_todo']));
+  var progresso = numeroProjeto(valorPorAlias(projeto, ['progresso','progresso_percentual','percentual_progresso','progress']));
+  var dataUltimaAtualizacao = valorPorAlias(projeto, ['data_ultima_atualizacao','ultima_atualizacao_real','ultima_atualizacao','last_update']);
+  var diasSemAtualizacao = numeroProjeto(valorPorAlias(projeto, ['dias_sem_atualizacao','dias_sem_update','dias_sem_movimento']));
+  var linkProjeto = valorPorAlias(projeto, ['link_projeto','projeto_link','url_projeto','link','LINK DO PROJETO']);
+
+  projeto.cliente = String(cliente || '').trim();
+  projeto.consultor = String(consultor || '').trim();
+  projeto.mes = String(mes || '').toUpperCase().trim();
+  projeto.status = String(status || '').trim();
+  projeto.tipo = String(tipo || '').trim();
+  projeto.formato = String(formato || '').trim();
+
+  projeto.diarias_total = diariasTotal !== null ? diariasTotal : 0;
+  projeto.diarias_realizadas = diariasRealizadas !== null ? diariasRealizadas : 0;
+  projeto.diarias_cont = projeto.diarias_total;
+  projeto.diarias_real = projeto.diarias_realizadas;
+  projeto.diarias_rest = projeto.diarias_cont !== null ? (projeto.diarias_cont - projeto.diarias_real) : null;
+
+  projeto.tasks_concluidas = tasksConcluidas !== null ? tasksConcluidas : 0;
+  projeto.tasks_pendentes = tasksPendentes !== null ? tasksPendentes : 0;
+  projeto.marcos_concluidos = marcosConcluidos !== null ? marcosConcluidos : 0;
+  projeto.marcos_pendentes = marcosPendentes !== null ? marcosPendentes : 0;
+  projeto.progresso = progresso;
+  projeto.data_ultima_atualizacao = dataUltimaAtualizacao ? String(dataUltimaAtualizacao).trim() : '';
+  projeto.dias_sem_atualizacao = diasSemAtualizacao;
+  projeto.link_projeto = normalizarUrlProjeto(linkProjeto || '');
+  projeto.projeto_link = projeto.link_projeto || projeto.projeto_link || '';
+  return projeto;
+}
+
 function applyProjectLinks(projetos) {
   return (projetos || []).filter(function(p){ return p && typeof p === 'object'; }).map(function(p){
     var byParser = obterLinkProjeto(p._row, p);
@@ -2397,7 +2455,8 @@ function applyProjectLinks(projetos) {
     var byMes = linksCliente.find(function(x){ return (x.mes_origem || '') === String(p.mes || '').toUpperCase(); });
     var byMap = (byMes || linksCliente[0] || {}).link || '';
     p.mes_origem = (byMes || linksCliente[0] || {}).mes_origem || p.mes_origem || '';
-    p.projeto_link = normalizarUrlProjeto(byParser || byMap);
+    p.projeto_link = normalizarUrlProjeto(byParser || byMap || p.link_projeto);
+    p.link_projeto = p.projeto_link || p.link_projeto || '';
     if (_linkDebugCount < 8 && p.cliente) {
       console.log('[LINK DEBUG] Projeto final:', {
         cliente: p.cliente,
@@ -2413,15 +2472,13 @@ function applyProjectLinks(projetos) {
 
 function prepararProjetosBase(projetos) {
   var lista = Array.isArray(projetos) ? projetos : [];
-  return lista.filter(function(p){ return p && typeof p === 'object'; }).map(function(p){
-    p.cliente = String(p.cliente || '').trim();
-    p.consultor = String(p.consultor || '').trim();
-    p.mes = String(p.mes || '').toUpperCase().trim();
-    p.status = String(p.status || '').trim();
-    p.tipo = String(p.tipo || '').trim();
-    p.formato = String(p.formato || '').trim();
-    return p;
-  });
+  return lista
+    .filter(function(p){ return p && typeof p === 'object'; })
+    .map(function(p){ return normalizarProjetoPlanilha(p); });
+}
+function lerDadosPlanilhaConsolidados(projetosRaw) {
+  var base = prepararProjetosBase(projetosRaw);
+  return { projetos: base, total: base.length };
 }
 function listarAbasBase(projetos) {
   var ordemPadrao = Object.keys(ABAS_GID_FIXAS);
@@ -2625,7 +2682,8 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
   }
 
   try {
-    var baseRaw = prepararProjetosBase(projetos);
+    var leitura = lerDadosPlanilhaConsolidados(projetos);
+    var baseRaw = leitura.projetos;
     var temDados = baseRaw.length > 0;
     if (temDados) {
     console.log('[4] Linhas processadas:', baseRaw.length);
@@ -2646,7 +2704,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (nd) nd.textContent = 'Planilha: ' + data + ' ' + hora;
     if (isRefresh) showToast(projetos.length + ' projetos atualizados \u2714', 'ok');
     } else {
-      var baseLocalInfo = carregarBaseProjetos(DATA.projetos);
+      var baseLocalInfo = carregarBaseProjetos(lerDadosPlanilhaConsolidados(DATA.projetos).projetos);
       DATA.projetos = baseLocalInfo.projetos;
       if (nd) nd.textContent = 'Falha ao carregar planilha (' + motivo + ')';
       if (motivo === 'timeout') showToast('Planilha demorou — exibindo base local', 'err');
@@ -2658,7 +2716,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     executarAuditoriaResumoProjetos(DATA.projetos);
   } catch (error) {
     console.error('[INIT] Erro ao consolidar/renderizar carga principal:', error);
-    DATA.projetos = prepararProjetosBase(DATA.projetos);
+    DATA.projetos = lerDadosPlanilhaConsolidados(DATA.projetos).projetos;
     if (nd) nd.textContent = 'Erro ao consolidar dados';
     showToast('Erro ao consolidar dados — base local preservada', 'err');
   }
@@ -2696,12 +2754,12 @@ window._jaCarregou = false;
 function inicializarPainel() {
   try {
     console.log('[INIT] Inicialização completa iniciada');
-    var baseLocal = carregarBaseProjetos(prepareBaseLocal(DATA.projetos || []));
+    var baseLocal = carregarBaseProjetos(lerDadosPlanilhaConsolidados(prepareBaseLocal(DATA.projetos || [])).projetos);
     DATA.projetos = baseLocal.projetos;
     console.log('[INIT] Base local pronta:', DATA.projetos.length);
     loadProjectLinksFromSheet().then(function(){
       console.log('[INIT] Links por aba carregados');
-      var baseComLinks = carregarBaseProjetos(DATA.projetos || []);
+      var baseComLinks = carregarBaseProjetos(lerDadosPlanilhaConsolidados(DATA.projetos || []).projetos);
       DATA.projetos = baseComLinks.projetos;
       runProjectLinkAudit(DATA.projetos);
       if (window._jaCarregou) renderAll();
