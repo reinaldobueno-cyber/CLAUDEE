@@ -763,30 +763,67 @@ function buildPrazoCards(p) {
 }
 
 function statusConcluidoProjeto(st) {
-  var s = String(st || '').toLowerCase();
-  return /(done|closed|complete|conclu|finaliz|feito|resolved)/.test(s);
+  var s = normalizarTextoProjeto(st || '');
+  return /(done|closed|complete|conclu|finaliz|feito|resolved|entregue|encerrad|sucesso|finalizado)/.test(s);
+}
+function normalizarTextoProjeto(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim();
+}
+function parseJsonSeguro(v) {
+  if (!v || typeof v !== 'string') return null;
+  var raw = v.trim();
+  if (!(raw[0] === '{' || raw[0] === '[')) return null;
+  try { return JSON.parse(raw); } catch(e) { return null; }
 }
 function isHeaderProjetoItem(it) {
-  var t = String(it.type || it.item_type || '').toLowerCase();
-  return /(header|section|group|phase|list)/.test(t) || it.is_header === true;
+  var t = normalizarTextoProjeto(it.type || it.item_type || it.tipo || '');
+  var nome = normalizarTextoProjeto(it.nome || it.name || '');
+  return /(header|section|group|phase|list|cabecalho|secao)/.test(t) || it.is_header === true || /^fase\s+\d+/.test(nome);
 }
 function isMilestoneProjetoItem(it) {
   if (it.milestone === true || it.is_milestone === true) return true;
-  var t = String(it.type || it.item_type || '').toLowerCase();
-  return t.indexOf('milestone') >= 0 || t.indexOf('marco') >= 0;
+  var t = normalizarTextoProjeto(it.type || it.item_type || it.tipo || '');
+  if (t.indexOf('milestone') >= 0 || t.indexOf('marco') >= 0) return true;
+  var campos = Array.isArray(it.custom_fields) ? it.custom_fields : [];
+  return campos.some(function(cf){
+    var n = normalizarTextoProjeto(cf && (cf.name || cf.nome));
+    var v = normalizarTextoProjeto(cf && (cf.value || cf.valor));
+    return n.indexOf('milestone') >= 0 || n.indexOf('marco') >= 0 || v === 'marco' || v === 'milestone';
+  });
 }
 function coletarDadosBrutosProjeto(proj) {
+  var payload =
+    proj.clickup_payload || proj.clickup_data || proj.dados_clickup || proj.raw_clickup ||
+    parseJsonSeguro(proj.clickup_json) || parseJsonSeguro(proj.payload_json) || parseJsonSeguro(proj.estrutura_json) || {};
+  var listas = payload.listas || payload.lists || [];
+  var itensDeListas = [];
+  if (Array.isArray(listas)) {
+    listas.forEach(function(l){
+      if (Array.isArray(l.tasks)) itensDeListas = itensDeListas.concat(l.tasks);
+      if (Array.isArray(l.items)) itensDeListas = itensDeListas.concat(l.items);
+    });
+  }
+  var itensBrutos =
+    (Array.isArray(proj.itens_fase) && proj.itens_fase) ||
+    (Array.isArray(proj.fase_itens) && proj.fase_itens) ||
+    (Array.isArray(proj.items_fase) && proj.items_fase) ||
+    (Array.isArray(proj.tasks) && proj.tasks) ||
+    (Array.isArray(proj.clickup_items) && proj.clickup_items) ||
+    (Array.isArray(proj.fase_items) && proj.fase_items) ||
+    (Array.isArray(payload.items) && payload.items) ||
+    (Array.isArray(payload.tasks) && payload.tasks) ||
+    itensDeListas || [];
+  var itens = Array.isArray(itensBrutos) ? itensBrutos : [];
+  var subtarefas = Array.isArray(payload.subtasks) ? payload.subtasks : [];
   return {
     projeto_id: proj.projeto_id || proj.id || null,
     projeto_nome: proj.cliente || proj.projeto_nome || '',
     fase_nome: proj.fase_nome || proj.fase || '',
-    itens: Array.isArray(proj.itens_fase) ? proj.itens_fase :
-      Array.isArray(proj.fase_itens) ? proj.fase_itens :
-      Array.isArray(proj.items_fase) ? proj.items_fase :
-      Array.isArray(proj.tasks) ? proj.tasks :
-      Array.isArray(proj.clickup_items) ? proj.clickup_items :
-      Array.isArray(proj.fase_items) ? proj.fase_items : [],
-    origem: 'clickup'
+    itens: itens.concat(subtarefas),
+    origem: 'clickup',
+    raw: payload
   };
 }
 function normalizarEstruturaProjeto(dadosBrutos) {
@@ -808,15 +845,15 @@ function normalizarEstruturaProjeto(dadosBrutos) {
   });
   itens.forEach(function(it){
     if (!it || isHeaderProjetoItem(it)) return;
-    var faseNome = it.fase_nome || it.list_name || it.group_name || dadosBrutos.fase_nome || '';
+    var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || dadosBrutos.fase_nome || '';
     var item = {
       id: it.id || it.task_id || '',
       nome: it.nome || it.name || '',
       tipo_normalizado: isMilestoneProjetoItem(it) ? 'marco' : 'task',
-      concluida: statusConcluidoProjeto(it.status),
+      concluida: statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status)),
       fase_nome: faseNome,
       origem: it.origem || dadosBrutos.origem || 'clickup',
-      status_original: it.status || ''
+      status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
     };
     if (item.fase_nome && !estrutura.fases.some(function(f){ return f.nome === item.fase_nome; })) {
       estrutura.fases.push({id: it.fase_id || it.list_id || '', nome: item.fase_nome});
@@ -866,16 +903,29 @@ function primeiroNumeroProjeto(obj, chaves) {
   }
   return null;
 }
+function primeiroNumeroProjetoProfundo(obj, chaves) {
+  var n = primeiroNumeroProjeto(obj, chaves);
+  if (n !== null) return n;
+  var blocos = [obj && obj.resumo, obj && obj.summary, obj && obj.metricas, obj && obj.metrics, obj && obj.clickup_resumo];
+  for (var i = 0; i < blocos.length; i++) {
+    if (blocos[i] && typeof blocos[i] === 'object') {
+      n = primeiroNumeroProjeto(blocos[i], chaves);
+      if (n !== null) return n;
+    }
+  }
+  return null;
+}
 function montarResumoProjeto(projetoBruto) {
   var bruto = coletarDadosBrutosProjeto(projetoBruto);
   var estrutura = normalizarEstruturaProjeto(bruto);
   var resumo = calcularResumoProjeto(estrutura);
   // Fallback para projetos sem estrutura de itens (mantém Camada 1 viva e evita card "zerado sem motivo").
   if ((resumo.tasks_total + resumo.marcos_total) === 0) {
-    var tCon = primeiroNumeroProjeto(projetoBruto, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done']);
-    var tPen = primeiroNumeroProjeto(projetoBruto, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo']);
-    var mCon = primeiroNumeroProjeto(projetoBruto, ['marcos_concluidos','milestones_done','marcos_done']);
-    var mPen = primeiroNumeroProjeto(projetoBruto, ['marcos_pendentes','milestones_pending','marcos_todo']);
+    var tCon = primeiroNumeroProjetoProfundo(projetoBruto, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done','concluidas_tasks','tasks_completed']);
+    var tPen = primeiroNumeroProjetoProfundo(projetoBruto, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo','pendentes_tasks','tasks_pending']);
+    var mCon = primeiroNumeroProjetoProfundo(projetoBruto, ['marcos_concluidos','milestones_done','marcos_done','milestones_completed']);
+    var mPen = primeiroNumeroProjetoProfundo(projetoBruto, ['marcos_pendentes','milestones_pending','marcos_todo','milestones_todo']);
+    var fTot = primeiroNumeroProjetoProfundo(projetoBruto, ['fases_total','phases_total','total_fases']);
     if (tCon !== null || tPen !== null || mCon !== null || mPen !== null) {
       console.log('[RESUMO] Fallback numérico aplicado para projeto sem itens estruturados:', projetoBruto.cliente || '-');
       resumo.tasks_concluidas = tCon !== null ? tCon : 0;
@@ -884,6 +934,7 @@ function montarResumoProjeto(projetoBruto) {
       resumo.marcos_concluidos = mCon !== null ? mCon : 0;
       resumo.marcos_pendentes = mPen !== null ? mPen : 0;
       resumo.marcos_total = resumo.marcos_concluidos + resumo.marcos_pendentes;
+      if (fTot !== null && !resumo.fases_total) resumo.fases_total = fTot;
     }
   }
   if (!resumo.fases_total && (projetoBruto.fase_nome || projetoBruto.fase)) {
@@ -2392,6 +2443,59 @@ function runProjectLinkAudit(projetos) {
   if (_projectLinkConflicts.length) console.table(_projectLinkConflicts.slice(0, 100));
 }
 
+function executarAuditoriaResumoProjetos(projetos, filtro) {
+  var lista = Array.isArray(projetos) ? projetos : [];
+  var termo = String(filtro || '').trim().toUpperCase();
+  var audit = [];
+  lista.forEach(function(p){
+    if (termo && String(p.cliente || '').toUpperCase().indexOf(termo) < 0) return;
+    var temEstrutura = temResumoEstrutural(p);
+    var linha = {
+      cliente: p.cliente || '-',
+      mes: p.mes || '-',
+      consultor: p.consultor || '-',
+      tem_estrutura: temEstrutura ? 'SIM' : 'NÃO',
+      fonte_items: (Array.isArray(p.itens_fase) && p.itens_fase.length) ? 'itens_fase' :
+        (Array.isArray(p.fase_itens) && p.fase_itens.length) ? 'fase_itens' :
+        (Array.isArray(p.tasks) && p.tasks.length) ? 'tasks' :
+        (Array.isArray(p.clickup_items) && p.clickup_items.length) ? 'clickup_items' : '-',
+      link_projeto: p.projeto_link ? 'SIM' : 'NÃO',
+      fases: '-',
+      tasks: '-',
+      marcos: '-',
+      progresso: '-'
+    };
+    if (temEstrutura) {
+      try {
+        var r = montarResumoProjeto(p);
+        linha.fases = r.fases_total;
+        linha.tasks = r.tasks_concluidas + '/' + r.tasks_pendentes;
+        linha.marcos = r.marcos_concluidos + '/' + r.marcos_pendentes;
+        linha.progresso = r.progresso + '%';
+      } catch (e) {
+        linha.tem_estrutura = 'ERRO';
+        linha.fonte_items = 'falha resumo';
+      }
+    }
+    audit.push(linha);
+  });
+
+  var resumo = {
+    total_projetos: audit.length,
+    com_estrutura: audit.filter(function(x){ return x.tem_estrutura === 'SIM'; }).length,
+    sem_estrutura: audit.filter(function(x){ return x.tem_estrutura === 'NÃO'; }).length,
+    com_erro_resumo: audit.filter(function(x){ return x.tem_estrutura === 'ERRO'; }).length,
+    com_link: audit.filter(function(x){ return x.link_projeto === 'SIM'; }).length,
+    sem_link: audit.filter(function(x){ return x.link_projeto === 'NÃO'; }).length
+  };
+  console.log('[AUDITORIA RESUMO] Resumo geral:', resumo);
+  if (audit.length) console.table(audit.slice(0, 200));
+  return {resumo: resumo, itens: audit};
+}
+window.executarAuditoriaResumoProjetos = function(filtroCliente){
+  return executarAuditoriaResumoProjetos(DATA.projetos || [], filtroCliente || '');
+};
+
 function _limparJsonp(cb) {
   try { delete window[cb]; } catch(e){}
   var s = document.getElementById('_jsonp_'+cb);
@@ -2516,6 +2620,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
       else if (motivo === 'init_error') showToast('Falha na inicialização da carga', 'err');
     }
     runProjectLinkAudit(DATA.projetos);
+    executarAuditoriaResumoProjetos(DATA.projetos);
   } catch (error) {
     console.error('[INIT] Erro ao consolidar/renderizar carga principal:', error);
     DATA.projetos = prepararProjetosBase(DATA.projetos);
