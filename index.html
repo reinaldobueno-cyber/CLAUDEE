@@ -2355,6 +2355,15 @@ function loadMetricasFromSheet() {
         if (!table) return;
         var cols = table.cols || [];
         var rows = table.rows || [];
+        var labelsVazios = (cols || []).filter(function(c){ return !String((c && c.label) || '').trim(); }).length;
+        if (rows.length && labelsVazios >= Math.max(1, Math.floor(cols.length * 0.8))) {
+          var headerCells = rows[0].c || [];
+          cols = cols.map(function(c, idx){
+            var hv = headerCells[idx] && headerCells[idx].v ? String(headerCells[idx].v) : (c && c.label) || ('col_' + idx);
+            return { label: hv, id: c && c.id };
+          });
+          rows = rows.slice(1);
+        }
         rows.forEach(function(row){
           var ro = mapearRow(cols, row);
           var cliente = valorRowAlias(ro, ['cliente','nome_cliente','nome_do_cliente']);
@@ -2558,10 +2567,29 @@ function applyProjectLinks(projetos) {
   });
 }
 function applyMetricasPlanilha(projetos) {
+  function encontrarFallbackPorSimilaridade(mes, cliente) {
+    var baseKey = normalizeClienteKey(cliente);
+    if (!baseKey) return null;
+    var tokens = baseKey.split(' ').filter(function(t){ return t.length > 2; });
+    if (!tokens.length) return null;
+    var best = {score: 0, item: null};
+    Object.keys(_metricasProjetoMap).forEach(function(k){
+      if (k.indexOf(mes + '|') !== 0) return;
+      var cand = k.split('|')[1] || '';
+      var score = tokens.reduce(function(acc, t){ return acc + (cand.indexOf(t) >= 0 ? 1 : 0); }, 0);
+      if (score > best.score) best = {score: score, item: _metricasProjetoMap[k]};
+    });
+    return best.score >= 2 ? best.item : null;
+  }
   return (projetos || []).map(function(p){
     if (!p || !p.cliente) return p;
-    var key = String(p.mes || '').toUpperCase() + '|' + normalizeClienteKey(p.cliente);
+    var mes = String(p.mes || '').toUpperCase();
+    var key = mes + '|' + normalizeClienteKey(p.cliente);
     var m = _metricasProjetoMap[key];
+    if (!m) {
+      m = encontrarFallbackPorSimilaridade(mes, p.cliente);
+      if (m) console.log('[METRICAS] Match por similaridade aplicado para', p.cliente, '(', mes, ')');
+    }
     if (!m) return p;
     if (m.tasks_concluidas !== null && m.tasks_concluidas !== undefined) p.tasks_concluidas = m.tasks_concluidas;
     if (m.tasks_pendentes !== null && m.tasks_pendentes !== undefined) p.tasks_pendentes = m.tasks_pendentes;
