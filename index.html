@@ -2720,6 +2720,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (nd) nd.textContent = 'Erro ao consolidar dados';
     showToast('Erro ao consolidar dados — base local preservada', 'err');
   }
+  runProjectLinkAudit(DATA.projetos);
 
   if (isRefresh) {
     var pageAtiva = document.querySelector('.page.on');
