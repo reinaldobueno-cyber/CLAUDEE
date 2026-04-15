@@ -915,6 +915,53 @@ function primeiroNumeroProjetoProfundo(obj, chaves) {
   }
   return null;
 }
+function obterNumeroPlanilha(obj, chaves) {
+  return primeiroNumeroProjetoProfundo(obj || {}, chaves || []);
+}
+function obterTextoPlanilha(obj, chaves) {
+  for (var i = 0; i < chaves.length; i++) {
+    var v = obj && obj[chaves[i]];
+    if (v !== null && v !== undefined && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+}
+function montarResumoPlanilha(projetoBruto) {
+  var tCon = obterNumeroPlanilha(projetoBruto, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done','concluidas_tasks','tasks_completed']) || 0;
+  var tPen = obterNumeroPlanilha(projetoBruto, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo','pendentes_tasks','tasks_pending']) || 0;
+  var mCon = obterNumeroPlanilha(projetoBruto, ['marcos_concluidos','milestones_done','marcos_done','milestones_completed']) || 0;
+  var mPen = obterNumeroPlanilha(projetoBruto, ['marcos_pendentes','milestones_pending','marcos_todo','milestones_todo']) || 0;
+  var fTot = obterNumeroPlanilha(projetoBruto, ['fases_total','phases_total','total_fases']) || 0;
+  var diasSemAtualizacao = obterNumeroPlanilha(projetoBruto, ['dias_sem_atualizacao','dias_sem_update','dias_sem_movimento']);
+  var progressoOrigem = obterNumeroPlanilha(projetoBruto, ['progresso','progresso_percentual','percentual_progresso','progress']);
+
+  var tasksTotal = tCon + tPen;
+  var marcosTotal = mCon + mPen;
+  var totalItens = tasksTotal + marcosTotal;
+  var progressoCalc = totalItens > 0 ? Math.round(((tCon + mCon) / totalItens) * 100) : 0;
+  var progressoFinal = (progressoOrigem !== null && progressoOrigem !== undefined) ? Number(progressoOrigem) : progressoCalc;
+
+  var temDados = tasksTotal > 0 || marcosTotal > 0 || fTot > 0 || (diasSemAtualizacao !== null && diasSemAtualizacao !== undefined);
+  if (!temDados) return { indisponivel: true };
+
+  return {
+    indisponivel: false,
+    cliente: projetoBruto.cliente || '',
+    fases: [],
+    tasks: [],
+    marcos: [],
+    fases_total: fTot,
+    tasks_total: tasksTotal,
+    tasks_concluidas: tCon,
+    tasks_pendentes: tPen,
+    marcos_total: marcosTotal,
+    marcos_concluidos: mCon,
+    marcos_pendentes: mPen,
+    progresso: Math.max(0, Math.min(100, Math.round(progressoFinal))),
+    total_itens: totalItens,
+    dias_sem_atualizacao: (diasSemAtualizacao !== null && diasSemAtualizacao !== undefined) ? Number(diasSemAtualizacao) : null,
+    fonte: 'planilha'
+  };
+}
 function montarResumoProjeto(projetoBruto) {
   var bruto = coletarDadosBrutosProjeto(projetoBruto);
   var estrutura = normalizarEstruturaProjeto(bruto);
@@ -986,6 +1033,7 @@ function renderResumoProjeto(estrutura, p) {
         '<div><div class="ef-l">Tasks</div><div class="ef-v">'+r.tasks_concluidas+' concl. / '+r.tasks_pendentes+' pend.</div></div>'+
         '<div><div class="ef-l">Marcos</div><div class="ef-v">'+r.marcos_concluidos+' concl. / '+r.marcos_pendentes+' pend.</div></div>'+
         '<div><div class="ef-l">Progresso</div><div class="ef-v">'+r.progresso+'%</div></div>'+
+        '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+(r.dias_sem_atualizacao !== null && r.dias_sem_atualizacao !== undefined ? r.dias_sem_atualizacao : '-')+'</div></div>'+
         '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
         '<div><div class="ef-l">Fases (nomes)</div><div class="ef-v" style="font-size:11px">'+fasesTxt+'</div></div>'+
       '</div>'+
@@ -1000,23 +1048,13 @@ function debugProjeto(estrutura) {
   console.log('Resumo:', estrutura.resumo);
 }
 function temResumoEstrutural(p) {
-  if (!p || typeof p !== 'object') return false;
-  if (p.resumo_projeto && !p.resumo_projeto.indisponivel) return true;
-  if (Array.isArray(p.itens_fase) && p.itens_fase.length) return true;
-  if (Array.isArray(p.fase_itens) && p.fase_itens.length) return true;
-  if (Array.isArray(p.items_fase) && p.items_fase.length) return true;
-  if (Array.isArray(p.tasks) && p.tasks.length) return true;
-  if (Array.isArray(p.clickup_items) && p.clickup_items.length) return true;
-  var tCon = primeiroNumeroProjeto(p, ['tarefas_concluidas','tasks_concluidas','tasks_done','tarefas_done']);
-  var tPen = primeiroNumeroProjeto(p, ['tarefas_pendentes','tasks_pendentes','tasks_todo','tarefas_todo']);
-  var mCon = primeiroNumeroProjeto(p, ['marcos_concluidos','milestones_done','marcos_done']);
-  var mPen = primeiroNumeroProjeto(p, ['marcos_pendentes','milestones_pending','marcos_todo']);
-  return (tCon !== null || tPen !== null || mCon !== null || mPen !== null);
+  var r = montarResumoPlanilha(p || {});
+  return !!(r && !r.indisponivel);
 }
 function buildGerencialProjeto(p) {
   if (temResumoEstrutural(p)) {
     try {
-      return renderResumoProjeto(montarResumoProjeto(p), p);
+      return renderResumoProjeto(montarResumoPlanilha(p), p);
     } catch (error) {
       console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
     }
@@ -1027,7 +1065,7 @@ function buildGerencialProjeto(p) {
   return ''+
     '<div style="margin:12px 0 6px">'+
       '<div class="sec-l">Resumo do Projeto</div>'+
-      '<div class="log-box">Resumo indisponível: a origem atual não retornou estrutura de fases/tasks/marcos para este projeto.</div>'+
+      '<div class="log-box">Resumo indisponível: planilha sem campos de tarefas/marcos/progresso para este projeto.</div>'+
       '<div class="exp-grid" style="margin-top:8px">'+
         '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
       '</div>'+
@@ -2455,10 +2493,7 @@ function executarAuditoriaResumoProjetos(projetos, filtro) {
       mes: p.mes || '-',
       consultor: p.consultor || '-',
       tem_estrutura: temEstrutura ? 'SIM' : 'NÃO',
-      fonte_items: (Array.isArray(p.itens_fase) && p.itens_fase.length) ? 'itens_fase' :
-        (Array.isArray(p.fase_itens) && p.fase_itens.length) ? 'fase_itens' :
-        (Array.isArray(p.tasks) && p.tasks.length) ? 'tasks' :
-        (Array.isArray(p.clickup_items) && p.clickup_items.length) ? 'clickup_items' : '-',
+      fonte_items: 'planilha',
       link_projeto: p.projeto_link ? 'SIM' : 'NÃO',
       fases: '-',
       tasks: '-',
@@ -2467,7 +2502,7 @@ function executarAuditoriaResumoProjetos(projetos, filtro) {
     };
     if (temEstrutura) {
       try {
-        var r = montarResumoProjeto(p);
+        var r = montarResumoPlanilha(p);
         linha.fases = r.fases_total;
         linha.tasks = r.tasks_concluidas + '/' + r.tasks_pendentes;
         linha.marcos = r.marcos_concluidos + '/' + r.marcos_pendentes;
