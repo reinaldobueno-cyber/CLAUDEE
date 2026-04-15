@@ -2288,6 +2288,8 @@ var _cbMap={};
 var APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx-bhGCUB5cIpw_o9tWRPVkcOnhdy2Z9rQr3BUc1CbN3gPqtHdOx_uzteAHuHAXm-fy/exec';
 var _projectLinkMap = {};
 var _projectLinkPromise = null;
+var _metricasProjetoMap = {};
+var _metricasPromise = null;
 var _linkDebugCount = 0;
 var _projectLinkConflicts = [];
 var _projectRowsSemLink = [];
@@ -2306,6 +2308,92 @@ function normalizeClienteKey(v) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')
     .replace(/\s+/g, ' ').trim();
+}
+function normalizeColunaKey(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+function valorRowAlias(rowObj, aliases) {
+  for (var i = 0; i < aliases.length; i++) {
+    var key = aliases[i];
+    if (rowObj[key] !== undefined && rowObj[key] !== null && String(rowObj[key]).trim() !== '') return rowObj[key];
+  }
+  return null;
+}
+
+function loadMetricasFromSheet() {
+  if (_metricasPromise) return _metricasPromise;
+  function parseGvizTable(txt) {
+    var m = txt.match(/setResponse\(([\s\S]+)\);?$/);
+    if (!m) return null;
+    var payload = JSON.parse(m[1]);
+    return (payload && payload.table) ? payload.table : null;
+  }
+  function mapearRow(cols, row) {
+    var out = {};
+    (cols || []).forEach(function(c, idx){
+      var nome = normalizeColunaKey(c && (c.label || c.id || ('col_' + idx)));
+      var cell = row && row.c ? row.c[idx] : null;
+      var valor = cell ? cell.v : null;
+      if (nome) out[nome] = valor;
+    });
+    return out;
+  }
+  _metricasPromise = Promise.resolve().then(function(){
+    var map = {};
+    var abas = Object.keys(ABAS_GID_FIXAS).map(function(m){ return {title:m, gid:ABAS_GID_FIXAS[m]}; });
+    return Promise.all(abas.map(function(aba){
+      var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid;
+      return fetch(url).then(function(r){
+        if (!r.ok) throw new Error('HTTP '+r.status+' ao ler métricas '+aba.title);
+        return r.text();
+      }).then(function(txt){
+        var table = parseGvizTable(txt);
+        if (!table) return;
+        var cols = table.cols || [];
+        var rows = table.rows || [];
+        rows.forEach(function(row){
+          var ro = mapearRow(cols, row);
+          var cliente = valorRowAlias(ro, ['cliente','nome_cliente','nome_do_cliente']);
+          if (!cliente) return;
+          var key = aba.title + '|' + normalizeClienteKey(cliente);
+          var tasksCon = numeroProjeto(valorRowAlias(ro, ['tasks_concluidas','tarefas_concluidas']));
+          var tasksPen = numeroProjeto(valorRowAlias(ro, ['tasks_pendentes','tarefas_pendentes']));
+          var marcosCon = numeroProjeto(valorRowAlias(ro, ['marcos_concluidos','milestones_concluidos','marcos_done']));
+          var marcosPen = numeroProjeto(valorRowAlias(ro, ['marcos_pendentes','milestones_pendentes','marcos_todo']));
+          var progresso = numeroProjeto(valorRowAlias(ro, ['progresso','progresso_percentual','percentual_progresso']));
+          var dataUlt = valorRowAlias(ro, ['data_ultima_atualizacao','ultima_atualizacao_real','ultima_atualizacao']);
+          var diasSem = numeroProjeto(valorRowAlias(ro, ['dias_sem_atualizacao','dias_sem_update','dias_sem_movimento']));
+          var link = valorRowAlias(ro, ['link_projeto','projeto_link','url_projeto','link_do_projeto']);
+          map[key] = {
+            tasks_concluidas: tasksCon,
+            tasks_pendentes: tasksPen,
+            marcos_concluidos: marcosCon,
+            marcos_pendentes: marcosPen,
+            progresso: progresso,
+            data_ultima_atualizacao: dataUlt ? String(dataUlt).trim() : '',
+            dias_sem_atualizacao: diasSem,
+            link_projeto: normalizarUrlProjeto(link || '')
+          };
+        });
+        console.log('[METRICAS] '+aba.title+': linhas lidas', rows.length);
+      }).catch(function(e){
+        console.error('[METRICAS] Erro na aba '+aba.title+':', e);
+      });
+    })).then(function(){
+      _metricasProjetoMap = map;
+      console.log('[METRICAS] total clientes com métricas:', Object.keys(map).length);
+      return map;
+    });
+  }).catch(function(error){
+    console.error('[METRICAS] Falha ao carregar métricas da planilha:', error);
+    _metricasPromise = null;
+    return _metricasProjetoMap || {};
+  });
+  return _metricasPromise;
 }
 
 function loadProjectLinksFromSheet() {
@@ -2469,6 +2557,26 @@ function applyProjectLinks(projetos) {
     return p;
   });
 }
+function applyMetricasPlanilha(projetos) {
+  return (projetos || []).map(function(p){
+    if (!p || !p.cliente) return p;
+    var key = String(p.mes || '').toUpperCase() + '|' + normalizeClienteKey(p.cliente);
+    var m = _metricasProjetoMap[key];
+    if (!m) return p;
+    if (m.tasks_concluidas !== null && m.tasks_concluidas !== undefined) p.tasks_concluidas = m.tasks_concluidas;
+    if (m.tasks_pendentes !== null && m.tasks_pendentes !== undefined) p.tasks_pendentes = m.tasks_pendentes;
+    if (m.marcos_concluidos !== null && m.marcos_concluidos !== undefined) p.marcos_concluidos = m.marcos_concluidos;
+    if (m.marcos_pendentes !== null && m.marcos_pendentes !== undefined) p.marcos_pendentes = m.marcos_pendentes;
+    if (m.progresso !== null && m.progresso !== undefined) p.progresso = m.progresso;
+    if (m.data_ultima_atualizacao) p.data_ultima_atualizacao = m.data_ultima_atualizacao;
+    if (m.dias_sem_atualizacao !== null && m.dias_sem_atualizacao !== undefined) p.dias_sem_atualizacao = m.dias_sem_atualizacao;
+    if (m.link_projeto) {
+      p.link_projeto = m.link_projeto;
+      p.projeto_link = m.link_projeto;
+    }
+    return p;
+  });
+}
 
 function prepararProjetosBase(projetos) {
   var lista = Array.isArray(projetos) ? projetos : [];
@@ -2495,6 +2603,7 @@ function carregarBaseProjetos(projetosRaw) {
   var abasLidas = listarAbasBase(base);
   console.log('[BASE] Abas lidas:', abasLidas);
   base = applyProjectLinks(base);
+  base = applyMetricasPlanilha(base);
   var projetosPorAba = {};
   var linksValidosPorAba = {};
   abasLidas.forEach(function(m){
@@ -2765,6 +2874,14 @@ function inicializarPainel() {
       if (window._jaCarregou) renderAll();
     }).catch(function(err){
       console.error('[INIT] Falha ao carregar links por aba:', err);
+    });
+    loadMetricasFromSheet().then(function(){
+      console.log('[INIT] Métricas por aba carregadas');
+      var baseComMetricas = carregarBaseProjetos(lerDadosPlanilhaConsolidados(DATA.projetos || []).projetos);
+      DATA.projetos = baseComMetricas.projetos;
+      if (window._jaCarregou) renderAll();
+    }).catch(function(err){
+      console.error('[INIT] Falha ao carregar métricas por aba:', err);
     });
     loadAll();
   } catch (error) {
