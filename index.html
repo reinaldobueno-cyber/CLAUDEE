@@ -950,6 +950,7 @@ function debugProjeto(estrutura) {
 }
 function temResumoEstrutural(p) {
   if (!p || typeof p !== 'object') return false;
+  if (p.resumo_projeto && !p.resumo_projeto.indisponivel) return true;
   if (Array.isArray(p.itens_fase) && p.itens_fase.length) return true;
   if (Array.isArray(p.fase_itens) && p.fase_itens.length) return true;
   if (Array.isArray(p.items_fase) && p.items_fase.length) return true;
@@ -975,7 +976,7 @@ function buildGerencialProjeto(p) {
   return ''+
     '<div style="margin:12px 0 6px">'+
       '<div class="sec-l">Resumo do Projeto</div>'+
-      '<div class="log-box">Resumo indisponível para este projeto (origem sem estrutura de fases/tasks/marcos).</div>'+
+      '<div class="log-box">Resumo indisponível: a origem atual não retornou estrutura de fases/tasks/marcos para este projeto.</div>'+
       '<div class="exp-grid" style="margin-top:8px">'+
         '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
       '</div>'+
@@ -2253,7 +2254,10 @@ function loadProjectLinksFromSheet() {
 
     return Promise.all(abas.map(function(aba){
       var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?gid=' + aba.gid + '&tq=' + encodeURIComponent('select B, W');
-      return fetch(url).then(function(r){ return r.text(); }).then(function(txt){
+      return fetch(url).then(function(r){
+        if (!r.ok) throw new Error('HTTP '+r.status+' ao ler aba '+aba.title);
+        return r.text();
+      }).then(function(txt){
         var rows = parseGvizRows(txt);
         mergeRowsIntoMap(rows, aba.title, map);
         console.log('[LOAD DEBUG] Qtd projetos '+aba.title+' (linhas lidas):', rows.length);
@@ -2276,6 +2280,7 @@ function loadProjectLinksFromSheet() {
     return map;
   }).catch(function(error){
     console.error('Erro ao consolidar dados do painel (links):', error);
+    _projectLinkPromise = null;
     return _projectLinkMap || {};
   });
   return _projectLinkPromise;
@@ -2329,10 +2334,20 @@ function prepararProjetosBase(projetos) {
     return p;
   });
 }
+function listarAbasBase(projetos) {
+  var ordemPadrao = Object.keys(ABAS_GID_FIXAS);
+  var presentes = {};
+  (projetos || []).forEach(function(p){
+    var m = String((p && p.mes) || '').toUpperCase().trim();
+    if (m) presentes[m] = true;
+  });
+  var extras = Object.keys(presentes).filter(function(m){ return ordemPadrao.indexOf(m) < 0; }).sort();
+  return ordemPadrao.concat(extras);
+}
 function carregarBaseProjetos(projetosRaw) {
-  var abasLidas = ['JAN','FEV','MAR','ABR'];
-  console.log('[BASE] Abas lidas:', abasLidas);
   var base = prepararProjetosBase(projetosRaw);
+  var abasLidas = listarAbasBase(base);
+  console.log('[BASE] Abas lidas:', abasLidas);
   base = applyProjectLinks(base);
   var projetosPorAba = {};
   var linksValidosPorAba = {};
