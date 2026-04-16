@@ -1019,6 +1019,29 @@ function montarResumoProjeto(projetoBruto) {
   console.log('[PROGRESSO] Projeto:', resultado.cliente || projetoBruto.cliente || '-', resultado.progresso + '%');
   return resultado;
 }
+function montarResumoClickup(projetoBruto) {
+  var bruto = coletarDadosBrutosProjeto(projetoBruto || {});
+  var estrutura = normalizarEstruturaProjeto(bruto);
+  var resumo = calcularResumoProjeto(estrutura);
+  var calc = calcularProgressoProjeto(resumo);
+  return {
+    indisponivel: (resumo.tasks_total + resumo.marcos_total + resumo.fases_total) === 0,
+    cliente: estrutura.cliente,
+    fases: estrutura.fases,
+    tasks: estrutura.tasks,
+    marcos: estrutura.marcos,
+    fases_total: resumo.fases_total,
+    tasks_total: resumo.tasks_total,
+    tasks_concluidas: resumo.tasks_concluidas,
+    tasks_pendentes: resumo.tasks_pendentes,
+    marcos_total: resumo.marcos_total,
+    marcos_concluidos: resumo.marcos_concluidos,
+    marcos_pendentes: resumo.marcos_pendentes,
+    progresso: calc.progresso,
+    total_itens: calc.total_itens,
+    fonte: 'clickup'
+  };
+}
 function renderResumoProjeto(estrutura, p) {
   var r = estrutura;
   if (!r || r.indisponivel) {
@@ -1053,18 +1076,17 @@ function debugProjeto(estrutura) {
   console.log('Resumo:', estrutura.resumo);
 }
 function temResumoEstrutural(p) {
-  var r = montarResumoPlanilha(p || {});
+  var r = montarResumoClickup(p || {});
   return !!(r && !r.indisponivel);
 }
 function camposResumoFaltantes(p) {
   var faltando = [];
-  if (numeroProjeto(p && p.tasks_concluidas) === null) faltando.push('tasks_concluidas');
-  if (numeroProjeto(p && p.tasks_pendentes) === null) faltando.push('tasks_pendentes');
-  if (numeroProjeto(p && p.marcos_concluidos) === null) faltando.push('marcos_concluidos');
-  if (numeroProjeto(p && p.marcos_pendentes) === null) faltando.push('marcos_pendentes');
-  if (numeroProjeto(p && p.progresso) === null) faltando.push('progresso');
-  if (!String((p && p.data_ultima_atualizacao) || '').trim()) faltando.push('data_ultima_atualizacao');
-  if (numeroProjeto(p && p.dias_sem_atualizacao) === null) faltando.push('dias_sem_atualizacao');
+  var bruto = coletarDadosBrutosProjeto(p || {});
+  var itens = Array.isArray(bruto.itens) ? bruto.itens : [];
+  if (!itens.length) faltando.push('itens_clickup');
+  var estrutura = normalizarEstruturaProjeto(bruto);
+  if (!estrutura.fases.length) faltando.push('fases_clickup');
+  if (!estrutura.tasks.length && !estrutura.marcos.length) faltando.push('tasks_marcos_clickup');
   return faltando;
 }
 function faseProjetoOperacional(p) {
@@ -1079,7 +1101,7 @@ function buildGerencialBase(p) {
   var fase = faseProjetoOperacional(p || {});
   var riscos = [];
   var faltando = camposResumoFaltantes(p);
-  var fonteResumo = (p && p._fonte_resumo) || 'Planilha';
+  var fonteResumo = (p && p._fonte_resumo) || 'ClickUp (payload do projeto)';
   var dV = parseD(p && p.data_venda), dK = parseD(p && p.data_kick), dT = parseD(p && p.data_inicio);
   var vk = diffD(dV, dK), vt = diffD(dV, dT);
   if (!dK) riscos.push('Kickoff não registrado');
@@ -1113,7 +1135,7 @@ function buildGerencialBase(p) {
 function buildGerencialProjeto(p) {
   if (temResumoEstrutural(p)) {
     try {
-      return renderResumoProjeto(montarResumoPlanilha(p), p);
+      return renderResumoProjeto(montarResumoClickup(p), p);
     } catch (error) {
       console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
     }
@@ -2591,7 +2613,7 @@ function normalizarProjetoPlanilha(p) {
   projeto.dias_sem_atualizacao = diasSemAtualizacao;
   projeto.link_projeto = normalizarUrlProjeto(linkProjeto || '');
   projeto.projeto_link = projeto.link_projeto || projeto.projeto_link || '';
-  projeto._fonte_resumo = projeto._fonte_resumo || 'Apps Script / base local';
+  projeto._fonte_resumo = projeto._fonte_resumo || 'ClickUp (payload do projeto)';
   return projeto;
 }
 
@@ -2685,7 +2707,6 @@ function carregarBaseProjetos(projetosRaw) {
   var abasLidas = listarAbasBase(base);
   console.log('[BASE] Abas lidas:', abasLidas);
   base = applyProjectLinks(base);
-  base = applyMetricasPlanilha(base);
   var projetosPorAba = {};
   var linksValidosPorAba = {};
   abasLidas.forEach(function(m){
@@ -2956,14 +2977,6 @@ function inicializarPainel() {
       if (window._jaCarregou) renderAll();
     }).catch(function(err){
       console.error('[INIT] Falha ao carregar links por aba:', err);
-    });
-    loadMetricasFromSheet().then(function(){
-      console.log('[INIT] Métricas por aba carregadas');
-      var baseComMetricas = carregarBaseProjetos(lerDadosPlanilhaConsolidados(DATA.projetos || []).projetos);
-      DATA.projetos = baseComMetricas.projetos;
-      if (window._jaCarregou) renderAll();
-    }).catch(function(err){
-      console.error('[INIT] Falha ao carregar métricas por aba:', err);
     });
     loadAll();
   } catch (error) {
