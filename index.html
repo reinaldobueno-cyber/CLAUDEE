@@ -1056,6 +1056,45 @@ function temResumoEstrutural(p) {
   var r = montarResumoPlanilha(p || {});
   return !!(r && !r.indisponivel);
 }
+function faseProjetoOperacional(p) {
+  var st = normalizarTextoProjeto((p && p.status) || '');
+  if (/encerr|conclu|finaliz/.test(st)) return 'Encerramento';
+  if (!parseD(p && p.data_kick)) return 'Pré-Kickoff';
+  if (parseD(p && p.data_kick) && !parseD(p && p.data_inicio)) return 'Kickoff Realizado';
+  if ((p && p.diarias_rest) !== null && Number(p.diarias_rest) <= 0) return 'Pós-Implantação';
+  return 'Implantação em Execução';
+}
+function buildGerencialBase(p) {
+  var fase = faseProjetoOperacional(p || {});
+  var riscos = [];
+  var dV = parseD(p && p.data_venda), dK = parseD(p && p.data_kick), dT = parseD(p && p.data_inicio);
+  var vk = diffD(dV, dK), vt = diffD(dV, dT);
+  if (!dK) riscos.push('Kickoff não registrado');
+  if (vk !== null && vk > 7) riscos.push('Kickoff acima do limite (7d)');
+  if (vt !== null && vt > 15) riscos.push('1º treinamento acima do limite (15d)');
+  if ((p && p.diarias_rest) !== null && Number(p.diarias_rest) < 0) riscos.push('Diárias excedidas');
+  if ((p && p.dias_sem_atualizacao) !== null && Number(p.dias_sem_atualizacao) > 7) riscos.push('Projeto sem atualização recente');
+  var riscoHtml = riscos.length ? riscos.map(function(r){ return '<span class="tag tag-r" style="margin-right:6px;margin-bottom:4px">'+r+'</span>'; }).join('') : '<span class="tag tag-g">Sem risco crítico identificado</span>';
+  var etapas = ['Pré-Kickoff','Kickoff Realizado','Implantação em Execução','Pós-Implantação','Encerramento'];
+  var trilha = etapas.map(function(e){
+    var on = e === fase;
+    return '<span class="tag '+(on?'tag-b':'tag-gray')+'" style="margin-right:6px;margin-bottom:4px">'+e+'</span>';
+  }).join('');
+  return ''+
+    '<div style="margin:12px 0 6px">'+
+      '<div class="sec-l">Resumo do Projeto</div>'+
+      '<div class="exp-grid">'+
+        '<div><div class="ef-l">Fase Atual</div><div class="ef-v">'+fase+'</div></div>'+
+        '<div><div class="ef-l">Status</div><div class="ef-v">'+(p.status || '-')+'</div></div>'+
+        '<div><div class="ef-l">Diárias</div><div class="ef-v">'+fn(p.diarias_real || 0)+' / '+fn(p.diarias_cont || 0)+'</div></div>'+
+        '<div><div class="ef-l">Restante</div><div class="ef-v">'+(p.diarias_rest !== null ? fn(p.diarias_rest) : '-')+'</div></div>'+
+        '<div><div class="ef-l">Última Atualização</div><div class="ef-v">'+(p.data_ultima_atualizacao || '-')+'</div></div>'+
+        '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+((p.dias_sem_atualizacao !== null && p.dias_sem_atualizacao !== undefined) ? p.dias_sem_atualizacao : '-')+'</div></div>'+
+      '</div>'+
+      '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:6px">Fases do Projeto (trilha)</div>'+trilha+'</div>'+
+      '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:6px">Top Riscos</div>'+riscoHtml+'</div>'+
+    '</div>';
+}
 function buildGerencialProjeto(p) {
   if (temResumoEstrutural(p)) {
     try {
@@ -1068,13 +1107,8 @@ function buildGerencialProjeto(p) {
     ? '<a class="project-link project-link-btn" href="'+p.projeto_link+'" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Abrir Projeto</a>'
     : '<span style="color:var(--muted)">Sem link</span>';
   return ''+
-    '<div style="margin:12px 0 6px">'+
-      '<div class="sec-l">Resumo do Projeto</div>'+
-      '<div class="log-box">Resumo indisponível: planilha sem campos de tarefas/marcos/progresso para este projeto.</div>'+
-      '<div class="exp-grid" style="margin-top:8px">'+
-        '<div><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>'+
-      '</div>'+
-    '</div>';
+    buildGerencialBase(p)+
+    '<div style="margin:8px 0 6px"><div class="ef-l">Link do Projeto</div><div class="ef-v">'+linkHtml+'</div></div>';
 }
 
 // ---- Build table rows ----
