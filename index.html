@@ -1089,6 +1089,29 @@ function camposResumoFaltantes(p) {
   if (!estrutura.tasks.length && !estrutura.marcos.length) faltando.push('tasks_marcos_clickup');
   return faltando;
 }
+function quantidadesResumoUI(p) {
+  try {
+    var r = montarResumoClickup(p || {});
+    if (r && !r.indisponivel) {
+      return {
+        fases: Number(r.fases_total || 0),
+        atividades: Number((r.tasks_concluidas || 0) + (r.tasks_pendentes || 0)),
+        marcos: Number((r.marcos_concluidos || 0) + (r.marcos_pendentes || 0)),
+        origem: 'ClickUp'
+      };
+    }
+  } catch (e) {}
+  var tCon = numeroProjeto(p && p.tasks_concluidas) || 0;
+  var tPen = numeroProjeto(p && p.tasks_pendentes) || 0;
+  var mCon = numeroProjeto(p && p.marcos_concluidos) || 0;
+  var mPen = numeroProjeto(p && p.marcos_pendentes) || 0;
+  return {
+    fases: 0,
+    atividades: tCon + tPen,
+    marcos: mCon + mPen,
+    origem: 'Base Local'
+  };
+}
 function faseProjetoOperacional(p) {
   var st = normalizarTextoProjeto((p && p.status) || '');
   if (/encerr|conclu|finaliz/.test(st)) return 'Encerramento';
@@ -1102,6 +1125,7 @@ function buildGerencialBase(p) {
   var riscos = [];
   var faltando = camposResumoFaltantes(p);
   var fonteResumo = (p && p._fonte_resumo) || 'ClickUp (payload do projeto)';
+  var qtd = quantidadesResumoUI(p);
   var dV = parseD(p && p.data_venda), dK = parseD(p && p.data_kick), dT = parseD(p && p.data_inicio);
   var vk = diffD(dV, dK), vt = diffD(dV, dT);
   if (!dK) riscos.push('Kickoff não registrado');
@@ -1118,6 +1142,12 @@ function buildGerencialBase(p) {
   return ''+
     '<div style="margin:12px 0 6px">'+
       '<div class="sec-l">Resumo do Projeto</div>'+
+      '<div class="exp-grid" style="margin-bottom:8px">'+
+        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Fases</div><div class="ef-v">'+qtd.fases+'</div></div>'+
+        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Atividades</div><div class="ef-v">'+qtd.atividades+'</div></div>'+
+        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Marcos</div><div class="ef-v">'+qtd.marcos+'</div></div>'+
+        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Origem</div><div class="ef-v">'+qtd.origem+'</div></div>'+
+      '</div>'+
       '<div class="exp-grid">'+
         '<div><div class="ef-l">Fase Atual</div><div class="ef-v">'+fase+'</div></div>'+
         '<div><div class="ef-l">Status</div><div class="ef-v">'+(p.status || '-')+'</div></div>'+
@@ -1128,7 +1158,7 @@ function buildGerencialBase(p) {
       '</div>'+
       '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:6px">Fases do Projeto (trilha)</div>'+trilha+'</div>'+
       '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:4px">Fonte do Resumo</div><div class="ef-v" style="font-size:11px">'+fonteResumo+'</div></div>'+
-      '<div style="margin-top:6px"><div class="ef-l" style="margin-bottom:4px">Campos faltantes para resumo completo</div><div class="ef-v" style="font-size:11px">'+(faltando.length ? faltando.join(', ') : 'Nenhum')+'</div></div>'+
+      '<div style="margin-top:6px"><div class="ef-l" style="margin-bottom:4px">Cobertura do resumo</div><div class="ef-v" style="font-size:11px">'+(faltando.length ? ('Incompleto ('+faltando.length+' campos)') : 'Completo')+'</div></div>'+
       '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:6px">Top Riscos</div>'+riscoHtml+'</div>'+
     '</div>';
 }
