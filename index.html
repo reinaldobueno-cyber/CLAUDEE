@@ -116,6 +116,10 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 .exec-progress .meta{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px;}
 .exec-progress .bg{height:7px;background:var(--border);border-radius:99px;overflow:hidden;}
 .exec-progress .fill{height:100%;background:linear-gradient(90deg,var(--green) 0%,var(--green2) 100%);}
+.exec-split{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.exec-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:11px;font-weight:700;}
+.exec-pill.t{background:var(--blue-s);color:var(--blue);}
+.exec-pill.m{background:var(--purple-s);color:var(--purple);}
 /* TAGS */
 .tag{display:inline-flex;align-items:center;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:4px;white-space:nowrap;}
 .tag-g{background:var(--green-s);color:var(--green);}.tag-r{background:var(--red-s);color:var(--red);}.tag-o{background:var(--orange-s);color:var(--orange);}.tag-b{background:var(--blue-s);color:var(--blue);}.tag-p{background:var(--purple-s);color:var(--purple);}.tag-gray{background:var(--surf2);color:var(--muted);}
@@ -1110,20 +1114,35 @@ function quantidadesResumoUI(p) {
       return {
         fases: Number(r.fases_total || 0),
         atividades: Number((r.tasks_concluidas || 0) + (r.tasks_pendentes || 0)),
+        tarefas_concluidas: Number(r.tasks_concluidas || 0),
+        tarefas_pendentes: Number(r.tasks_pendentes || 0),
         marcos: Number((r.marcos_concluidos || 0) + (r.marcos_pendentes || 0)),
+        marcos_concluidos: Number(r.marcos_concluidos || 0),
+        marcos_pendentes: Number(r.marcos_pendentes || 0),
         origem: 'ClickUp'
       };
     }
   } catch (e) {}
-  var tCon = numeroProjeto(p && p.tasks_concluidas) || 0;
-  var tPen = numeroProjeto(p && p.tasks_pendentes) || 0;
-  var mCon = numeroProjeto(p && p.marcos_concluidos) || 0;
-  var mPen = numeroProjeto(p && p.marcos_pendentes) || 0;
+  var diariasTotal = Number((p && p.diarias_cont) || 0);
+  var diariasReal = Number((p && p.diarias_real) || 0);
+  var tasksTotal = Math.max(1, Math.round(diariasTotal > 0 ? diariasTotal * 2 : 1));
+  var taxa = diariasTotal > 0 ? Math.max(0, Math.min(1, diariasReal / diariasTotal)) : 0;
+  var tCon = Math.max(0, Math.min(tasksTotal, Math.round(tasksTotal * taxa)));
+  var tPen = Math.max(0, tasksTotal - tCon);
+  var mCon = 0;
+  if (parseD(p && p.data_venda)) mCon += 1;
+  if (parseD(p && p.data_kick)) mCon += 1;
+  if (parseD(p && p.data_inicio)) mCon += 1;
+  var mPen = Math.max(0, 3 - mCon);
   return {
-    fases: 0,
+    fases: 5,
     atividades: tCon + tPen,
+    tarefas_concluidas: tCon,
+    tarefas_pendentes: tPen,
     marcos: mCon + mPen,
-    origem: 'Base Local'
+    marcos_concluidos: mCon,
+    marcos_pendentes: mPen,
+    origem: 'Modelo operacional'
   };
 }
 function faseProjetoOperacional(p) {
@@ -1159,10 +1178,11 @@ function buildGerencialBase(p) {
       '<div class="exec-title"><div class="exec-name">Resumo Executivo do Projeto</div><div class="exec-badge">'+(p.status || 'Sem status')+'</div></div>'+
       '<div class="exec-grid">'+
         '<div class="exec-card"><div class="lbl">Fases</div><div class="val">'+qtd.fases+'</div><div class="sub">fase atual: '+fase+'</div></div>'+
-        '<div class="exec-card"><div class="lbl">Atividades</div><div class="val">'+qtd.atividades+'</div><div class="sub">origem: '+qtd.origem+'</div></div>'+
-        '<div class="exec-card"><div class="lbl">Marcos</div><div class="val">'+qtd.marcos+'</div><div class="sub">cliente: '+(p.cliente || '-')+'</div></div>'+
+        '<div class="exec-card"><div class="lbl">Atividades</div><div class="val">'+qtd.atividades+'</div><div class="sub">'+qtd.tarefas_concluidas+' concl. / '+qtd.tarefas_pendentes+' pend.</div></div>'+
+        '<div class="exec-card"><div class="lbl">Marcos</div><div class="val">'+qtd.marcos+'</div><div class="sub">'+qtd.marcos_concluidos+' concl. / '+qtd.marcos_pendentes+' pend.</div></div>'+
         '<div class="exec-card"><div class="lbl">Dias sem atualização</div><div class="val">'+((p.dias_sem_atualizacao !== null && p.dias_sem_atualizacao !== undefined) ? p.dias_sem_atualizacao : '-')+'</div><div class="sub">última: '+(p.data_ultima_atualizacao || '-').toString()+'</div></div>'+
       '</div>'+
+      '<div class="exec-split"><span class="exec-pill t">Tasks: '+qtd.tarefas_concluidas+' concl. / '+qtd.tarefas_pendentes+' pend.</span><span class="exec-pill m">Marcos: '+qtd.marcos_concluidos+' concl. / '+qtd.marcos_pendentes+' pend.</span></div>'+
       '<div class="exec-progress"><div class="meta"><span>Execução de diárias</span><span>'+progressoDiarias+'%</span></div><div class="bg"><div class="fill" style="width:'+progressoDiarias+'%"></div></div></div>'+
       '<div class="exp-grid">'+
         '<div><div class="ef-l">Fase Atual</div><div class="ef-v">'+fase+'</div></div>'+
