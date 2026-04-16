@@ -1056,6 +1056,17 @@ function temResumoEstrutural(p) {
   var r = montarResumoPlanilha(p || {});
   return !!(r && !r.indisponivel);
 }
+function camposResumoFaltantes(p) {
+  var faltando = [];
+  if (numeroProjeto(p && p.tasks_concluidas) === null) faltando.push('tasks_concluidas');
+  if (numeroProjeto(p && p.tasks_pendentes) === null) faltando.push('tasks_pendentes');
+  if (numeroProjeto(p && p.marcos_concluidos) === null) faltando.push('marcos_concluidos');
+  if (numeroProjeto(p && p.marcos_pendentes) === null) faltando.push('marcos_pendentes');
+  if (numeroProjeto(p && p.progresso) === null) faltando.push('progresso');
+  if (!String((p && p.data_ultima_atualizacao) || '').trim()) faltando.push('data_ultima_atualizacao');
+  if (numeroProjeto(p && p.dias_sem_atualizacao) === null) faltando.push('dias_sem_atualizacao');
+  return faltando;
+}
 function faseProjetoOperacional(p) {
   var st = normalizarTextoProjeto((p && p.status) || '');
   if (/encerr|conclu|finaliz/.test(st)) return 'Encerramento';
@@ -1067,6 +1078,8 @@ function faseProjetoOperacional(p) {
 function buildGerencialBase(p) {
   var fase = faseProjetoOperacional(p || {});
   var riscos = [];
+  var faltando = camposResumoFaltantes(p);
+  var fonteResumo = (p && p._fonte_resumo) || 'Planilha';
   var dV = parseD(p && p.data_venda), dK = parseD(p && p.data_kick), dT = parseD(p && p.data_inicio);
   var vk = diffD(dV, dK), vt = diffD(dV, dT);
   if (!dK) riscos.push('Kickoff não registrado');
@@ -1092,6 +1105,8 @@ function buildGerencialBase(p) {
         '<div><div class="ef-l">Dias sem atualização</div><div class="ef-v">'+((p.dias_sem_atualizacao !== null && p.dias_sem_atualizacao !== undefined) ? p.dias_sem_atualizacao : '-')+'</div></div>'+
       '</div>'+
       '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:6px">Fases do Projeto (trilha)</div>'+trilha+'</div>'+
+      '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:4px">Fonte do Resumo</div><div class="ef-v" style="font-size:11px">'+fonteResumo+'</div></div>'+
+      '<div style="margin-top:6px"><div class="ef-l" style="margin-bottom:4px">Campos faltantes para resumo completo</div><div class="ef-v" style="font-size:11px">'+(faltando.length ? faltando.join(', ') : 'Nenhum')+'</div></div>'+
       '<div style="margin-top:8px"><div class="ef-l" style="margin-bottom:6px">Top Riscos</div>'+riscoHtml+'</div>'+
     '</div>';
 }
@@ -2576,6 +2591,7 @@ function normalizarProjetoPlanilha(p) {
   projeto.dias_sem_atualizacao = diasSemAtualizacao;
   projeto.link_projeto = normalizarUrlProjeto(linkProjeto || '');
   projeto.projeto_link = projeto.link_projeto || projeto.projeto_link || '';
+  projeto._fonte_resumo = projeto._fonte_resumo || 'Apps Script / base local';
   return projeto;
 }
 
@@ -2622,9 +2638,13 @@ function applyMetricasPlanilha(projetos) {
     var m = _metricasProjetoMap[key];
     if (!m) {
       m = encontrarFallbackPorSimilaridade(mes, p.cliente);
-      if (m) console.log('[METRICAS] Match por similaridade aplicado para', p.cliente, '(', mes, ')');
+      if (m) {
+        console.log('[METRICAS] Match por similaridade aplicado para', p.cliente, '(', mes, ')');
+        p._fonte_resumo = 'Planilha (aba ' + mes + ', match por similaridade)';
+      }
     }
     if (!m) return p;
+    p._fonte_resumo = p._fonte_resumo || ('Planilha (aba ' + mes + ')');
     if (m.tasks_concluidas !== null && m.tasks_concluidas !== undefined) p.tasks_concluidas = m.tasks_concluidas;
     if (m.tasks_pendentes !== null && m.tasks_pendentes !== undefined) p.tasks_pendentes = m.tasks_pendentes;
     if (m.marcos_concluidos !== null && m.marcos_concluidos !== undefined) p.marcos_concluidos = m.marcos_concluidos;
