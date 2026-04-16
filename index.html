@@ -103,6 +103,19 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
 .log-box{background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);line-height:1.6;margin-top:4px;}
 .obs-box{background:var(--blue-s);border:1px solid rgba(26,82,118,.15);border-radius:6px;padding:8px 12px;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--blue);line-height:1.6;}
 .sec-l{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px;margin-top:10px;}
+.exec-wrap{background:linear-gradient(180deg,#f9fcfa 0%,#f4f8f5 100%);border:1px solid var(--border);border-radius:10px;padding:12px 12px 10px;margin:10px 0 6px;}
+.exec-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.exec-name{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.9px;color:var(--green);}
+.exec-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--green-s);color:var(--green);}
+.exec-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;margin-bottom:10px;}
+.exec-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 10px;}
+.exec-card .lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);}
+.exec-card .val{font-size:21px;font-weight:800;line-height:1.1;color:var(--text);}
+.exec-card .sub{font-size:10px;color:var(--muted);}
+.exec-progress{margin:8px 0 2px;}
+.exec-progress .meta{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px;}
+.exec-progress .bg{height:7px;background:var(--border);border-radius:99px;overflow:hidden;}
+.exec-progress .fill{height:100%;background:linear-gradient(90deg,var(--green) 0%,var(--green2) 100%);}
 /* TAGS */
 .tag{display:inline-flex;align-items:center;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;padding:3px 8px;border-radius:4px;white-space:nowrap;}
 .tag-g{background:var(--green-s);color:var(--green);}.tag-r{background:var(--red-s);color:var(--red);}.tag-o{background:var(--orange-s);color:var(--orange);}.tag-b{background:var(--blue-s);color:var(--blue);}.tag-p{background:var(--purple-s);color:var(--purple);}.tag-gray{background:var(--surf2);color:var(--muted);}
@@ -220,6 +233,7 @@ nav{background:var(--nav);height:58px;display:flex;align-items:center;justify-co
   .ptable-head>*:nth-child(n+3):not(:last-child),.prow>.pcell:nth-child(n+3):not(:last-child){display:none;}
   .prazo-grid,.av-split,.cgrid,.dash-row,.dash-row2{grid-template-columns:1fr;}
   .dash-grid{grid-template-columns:repeat(3,1fr);}
+  .exec-grid{grid-template-columns:repeat(2,minmax(120px,1fr));}
   .period-bar,.tabs,.page{padding-left:12px;padding-right:12px;}
 }
 .leaflet-tooltip{max-width:300px!important;white-space:normal!important;word-break:break-word!important;padding:0!important;border:none!important;background:transparent!important;box-shadow:none!important;}
@@ -1139,15 +1153,17 @@ function buildGerencialBase(p) {
     var on = e === fase;
     return '<span class="tag '+(on?'tag-b':'tag-gray')+'" style="margin-right:6px;margin-bottom:4px">'+e+'</span>';
   }).join('');
+  var progressoDiarias = (p && p.diarias_cont) ? Math.max(0, Math.min(100, Math.round(((p.diarias_real || 0) / Math.max(0.1, p.diarias_cont)) * 100))) : 0;
   return ''+
-    '<div style="margin:12px 0 6px">'+
-      '<div class="sec-l">Resumo do Projeto</div>'+
-      '<div class="exp-grid" style="margin-bottom:8px">'+
-        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Fases</div><div class="ef-v">'+qtd.fases+'</div></div>'+
-        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Atividades</div><div class="ef-v">'+qtd.atividades+'</div></div>'+
-        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Marcos</div><div class="ef-v">'+qtd.marcos+'</div></div>'+
-        '<div style="background:var(--surf);border:1px solid var(--border);border-radius:6px;padding:8px 10px"><div class="ef-l">Origem</div><div class="ef-v">'+qtd.origem+'</div></div>'+
+    '<div class="exec-wrap">'+
+      '<div class="exec-title"><div class="exec-name">Resumo Executivo do Projeto</div><div class="exec-badge">'+(p.status || 'Sem status')+'</div></div>'+
+      '<div class="exec-grid">'+
+        '<div class="exec-card"><div class="lbl">Fases</div><div class="val">'+qtd.fases+'</div><div class="sub">fase atual: '+fase+'</div></div>'+
+        '<div class="exec-card"><div class="lbl">Atividades</div><div class="val">'+qtd.atividades+'</div><div class="sub">origem: '+qtd.origem+'</div></div>'+
+        '<div class="exec-card"><div class="lbl">Marcos</div><div class="val">'+qtd.marcos+'</div><div class="sub">cliente: '+(p.cliente || '-')+'</div></div>'+
+        '<div class="exec-card"><div class="lbl">Dias sem atualização</div><div class="val">'+((p.dias_sem_atualizacao !== null && p.dias_sem_atualizacao !== undefined) ? p.dias_sem_atualizacao : '-')+'</div><div class="sub">última: '+(p.data_ultima_atualizacao || '-').toString()+'</div></div>'+
       '</div>'+
+      '<div class="exec-progress"><div class="meta"><span>Execução de diárias</span><span>'+progressoDiarias+'%</span></div><div class="bg"><div class="fill" style="width:'+progressoDiarias+'%"></div></div></div>'+
       '<div class="exp-grid">'+
         '<div><div class="ef-l">Fase Atual</div><div class="ef-v">'+fase+'</div></div>'+
         '<div><div class="ef-l">Status</div><div class="ef-v">'+(p.status || '-')+'</div></div>'+
