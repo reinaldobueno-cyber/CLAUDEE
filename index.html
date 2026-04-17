@@ -844,8 +844,18 @@ function normalizarTipo(item) {
   if (!item || typeof item !== 'object') return 'ignorar';
   if (isHeaderProjetoItem(item)) return 'fase';
   if (isMilestoneProjetoItem(item)) return 'marco';
+  var nomeNorm = normalizarTextoProjeto(obterNomeProjetoItem(item));
+  var temFilhos = obterFilhosProjetoItem(item).length > 0;
+  var semStatus = !normalizarTextoProjeto(obterStatusProjetoItem(item));
+  if (temFilhos && semStatus && /(fase|phase|etapa|grupo|group|secao|section|lista|list)/.test(nomeNorm)) return 'fase';
   if (obterNomeProjetoItem(item) || obterIdProjetoItem(item) || obterStatusProjetoItem(item)) return 'atividade';
   return 'ignorar';
+}
+function motivoIgnoradoItem(itemFlat) {
+  var it = itemFlat && (itemFlat.raw || itemFlat);
+  if (!it || typeof it !== 'object') return 'nodo_invalido';
+  if (!obterNomeProjetoItem(it) && !obterIdProjetoItem(it) && !obterStatusProjetoItem(it)) return 'sem_id_nome_status';
+  return 'nao_classificado_por_regra';
 }
 function flattenItens(arvore, faseAtual, saida, nivel) {
   var lista = Array.isArray(arvore) ? arvore : [];
@@ -879,25 +889,33 @@ function coletarDadosBrutosProjeto(proj) {
     parseJsonSeguro(proj.clickup_json) || parseJsonSeguro(proj.payload_json) || parseJsonSeguro(proj.estrutura_json) || {};
   var listas = payload.listas || payload.lists || [];
   var itensDeListas = [];
+  var listasComoNos = [];
   if (Array.isArray(listas)) {
     listas.forEach(function(l){
+      if (l && typeof l === 'object') listasComoNos.push(l);
       if (Array.isArray(l.tasks)) itensDeListas = itensDeListas.concat(l.tasks);
       if (Array.isArray(l.items)) itensDeListas = itensDeListas.concat(l.items);
+      if (Array.isArray(l.children)) itensDeListas = itensDeListas.concat(l.children);
     });
   }
-  var itensBrutos =
-    (Array.isArray(proj.itens_fase) && proj.itens_fase) ||
-    (Array.isArray(proj.fase_itens) && proj.fase_itens) ||
-    (Array.isArray(proj.items_fase) && proj.items_fase) ||
-    (Array.isArray(proj.tasks) && proj.tasks) ||
-    (Array.isArray(proj.clickup_items) && proj.clickup_items) ||
-    (Array.isArray(proj.fase_items) && proj.fase_items) ||
-    (Array.isArray(payload.items) && payload.items) ||
-    (Array.isArray(payload.tasks) && payload.tasks) ||
-    itensDeListas || [];
-  var itens = Array.isArray(itensBrutos) ? itensBrutos.slice() : [];
+  var fontes = [
+    proj.itens_fase, proj.fase_itens, proj.items_fase, proj.tasks, proj.clickup_items, proj.fase_items,
+    payload.items, payload.tasks, payload.children, payload.nodes, payload.groups, payload.sections, payload.phases,
+    payload.hierarchy, payload.tree, payload.data, itensDeListas, listasComoNos
+  ];
+  var itens = [];
+  fontes.forEach(function(f){
+    if (Array.isArray(f)) itens = itens.concat(f);
+  });
   var subtarefasSoltas = Array.isArray(payload.subtasks) ? payload.subtasks : [];
   if (subtarefasSoltas.length) itens = itens.concat(subtarefasSoltas);
+  if (!itens.length && payload && typeof payload === 'object') {
+    Object.keys(payload).forEach(function(k){
+      if (!Array.isArray(payload[k])) return;
+      if (!/(items?|tasks?|children|nodes|groups?|sections?|phases?|subtasks?)/i.test(k)) return;
+      itens = itens.concat(payload[k]);
+    });
+  }
   return {
     projeto_id: proj.projeto_id || proj.id || null,
     projeto_nome: proj.cliente || proj.projeto_nome || '',
@@ -1193,7 +1211,8 @@ function montarResumoClickup(projetoBruto) {
       id: it.id || '',
       nome: it.nome || '(sem nome)',
       fase_nome: it.fase_nome || '',
-      motivo: 'item_sem_identificacao_estrutural',
+      motivo: motivoIgnoradoItem(it),
+      status_original: obterStatusProjetoItem(it.raw || it),
       raw: it.raw
     };
   });
@@ -2635,6 +2654,22 @@ function valorRowAlias(rowObj, aliases) {
   }
   return null;
 }
+function extrairEstruturaClickupDaLinha(ro) {
+  var payloadObj =
+    valorRowAlias(ro, ['clickup_payload','payload_clickup','dados_clickup','raw_clickup','clickup_data']) ||
+    valorRowAlias(ro, ['payload_obj','payload_object','estrutura_obj']);
+  var payloadJson = valorRowAlias(ro, ['clickup_json','payload_json','estrutura_json','clickup_payload_json','json_clickup']);
+  var itens = valorRowAlias(ro, ['clickup_items','items_clickup','itens_clickup','tasks_clickup','clickup_tasks']);
+  var faseItens = valorRowAlias(ro, ['fase_items','itens_fase','fase_itens','items_fase']);
+  var faseNome = valorRowAlias(ro, ['fase_nome','fase_atual','group_name','list_name']);
+  return {
+    clickup_payload: (payloadObj && typeof payloadObj === 'object') ? payloadObj : null,
+    clickup_json: payloadJson ? String(payloadJson) : '',
+    clickup_items: Array.isArray(itens) ? itens : null,
+    fase_items: Array.isArray(faseItens) ? faseItens : null,
+    fase_nome: faseNome ? String(faseNome).trim() : ''
+  };
+}
 
 function loadMetricasFromSheet() {
   if (_metricasPromise) return _metricasPromise;
@@ -2689,6 +2724,7 @@ function loadMetricasFromSheet() {
           var dataUlt = valorRowAlias(ro, ['data_ultima_atualizacao','ultima_atualizacao_real','ultima_atualizacao']);
           var diasSem = numeroProjeto(valorRowAlias(ro, ['dias_sem_atualizacao','dias_sem_update','dias_sem_movimento']));
           var link = valorRowAlias(ro, ['link_projeto','projeto_link','url_projeto','link_do_projeto']);
+          var estruturaClickup = extrairEstruturaClickupDaLinha(ro);
           map[key] = {
             tasks_concluidas: tasksCon,
             tasks_pendentes: tasksPen,
@@ -2697,7 +2733,12 @@ function loadMetricasFromSheet() {
             progresso: progresso,
             data_ultima_atualizacao: dataUlt ? String(dataUlt).trim() : '',
             dias_sem_atualizacao: diasSem,
-            link_projeto: normalizarUrlProjeto(link || '')
+            link_projeto: normalizarUrlProjeto(link || ''),
+            clickup_payload: estruturaClickup.clickup_payload,
+            clickup_json: estruturaClickup.clickup_json,
+            clickup_items: estruturaClickup.clickup_items,
+            fase_items: estruturaClickup.fase_items,
+            fase_nome: estruturaClickup.fase_nome
           };
         });
         console.log('[METRICAS] '+aba.title+': linhas lidas', rows.length);
@@ -2919,6 +2960,11 @@ function applyMetricasPlanilha(projetos) {
       p.link_projeto = m.link_projeto;
       p.projeto_link = m.link_projeto;
     }
+    if (m.clickup_payload && typeof m.clickup_payload === 'object') p.clickup_payload = m.clickup_payload;
+    if (m.clickup_json && !p.clickup_json) p.clickup_json = m.clickup_json;
+    if (Array.isArray(m.clickup_items) && !Array.isArray(p.clickup_items)) p.clickup_items = m.clickup_items;
+    if (Array.isArray(m.fase_items) && !Array.isArray(p.fase_items)) p.fase_items = m.fase_items;
+    if (m.fase_nome && !p.fase_nome) p.fase_nome = m.fase_nome;
     return p;
   });
 }
