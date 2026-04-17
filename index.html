@@ -3171,6 +3171,7 @@ window.auditarTaxonomiaGlobal = function(limite){
   console.log('[AUDITORIA TAXONOMIA GLOBAL]', out);
   return out;
 };
+<<<<<<< codex/remove-clickup-integration-and-update-links-cvqov2
 
 // Função utilitária para uso no console da própria página do ClickUp.
 // Regra: usa somente rows raiz reais (.cdk-drag.cu-drag-drop-item.cu-task-row)
@@ -3260,6 +3261,8 @@ window.extrairClickupRootOnly = function () {
     resumo: resumo
   };
 };
+=======
+>>>>>>> main
 function executarTesteQualidadeFases(projetos, filtro) {
   var lista = Array.isArray(projetos) ? projetos : [];
   var termo = String(filtro || '').trim().toUpperCase();
@@ -3455,6 +3458,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     if (nd) nd.textContent = 'Erro ao consolidar dados';
     showToast('Erro ao consolidar dados — base local preservada', 'err');
   }
+  runProjectLinkAudit(DATA.projetos);
 
   if (isRefresh) {
     var pageAtiva = document.querySelector('.page.on');
