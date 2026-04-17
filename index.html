@@ -858,8 +858,17 @@ function normalizarEstruturaProjeto(dadosBrutos) {
   };
   var itens = dadosBrutos.itens || [];
   var parentComSub = {};
+  function registrarFase(nome, id) {
+    var faseNome = String(nome || '').trim();
+    if (!faseNome) return;
+    if (!estrutura.fases.some(function(f){ return f.nome === faseNome; })) {
+      estrutura.fases.push({id: id || '', nome: faseNome});
+    }
+  }
   itens.forEach(function(it){
     if (it && it.parent_id) parentComSub[it.parent_id] = true;
+    var faseNomeBruta = it && (it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || it.section_name);
+    registrarFase(faseNomeBruta, it && (it.fase_id || it.list_id));
   });
   itens.forEach(function(it){
     if (!it || isHeaderProjetoItem(it)) return;
@@ -873,9 +882,7 @@ function normalizarEstruturaProjeto(dadosBrutos) {
       origem: it.origem || dadosBrutos.origem || 'clickup',
       status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
     };
-    if (item.fase_nome && !estrutura.fases.some(function(f){ return f.nome === item.fase_nome; })) {
-      estrutura.fases.push({id: it.fase_id || it.list_id || '', nome: item.fase_nome});
-    }
+    registrarFase(item.fase_nome, it.fase_id || it.list_id || '');
     // Política: subtarefas entram, mas se existem subtarefas o pai não entra para evitar dupla contagem.
     var isParentComSub = item.id && parentComSub[item.id] === true;
     if (isParentComSub) return;
@@ -2865,6 +2872,44 @@ function executarAuditoriaResumoProjetos(projetos, filtro) {
 window.executarAuditoriaResumoProjetos = function(filtroCliente){
   return executarAuditoriaResumoProjetos(DATA.projetos || [], filtroCliente || '');
 };
+function executarTesteQualidadeFases(projetos, filtro) {
+  var lista = Array.isArray(projetos) ? projetos : [];
+  var termo = String(filtro || '').trim().toUpperCase();
+  var resultados = [];
+  lista.forEach(function(p){
+    if (termo && String(p.cliente || '').toUpperCase().indexOf(termo) < 0) return;
+    var bruto = coletarDadosBrutosProjeto(p || {});
+    var itens = Array.isArray(bruto.itens) ? bruto.itens : [];
+    var fasesPorItens = {};
+    itens.forEach(function(it){
+      var nome = (it && (it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || it.section_name)) || '';
+      nome = String(nome || '').trim();
+      if (nome) fasesPorItens[nome] = true;
+    });
+    var resumo = montarResumoClickup(p || {});
+    var nResumo = Number(resumo && resumo.fases_total || 0);
+    var nItens = Object.keys(fasesPorItens).length;
+    resultados.push({
+      cliente: p.cliente || '-',
+      mes: p.mes || '-',
+      fases_resumo: nResumo,
+      fases_itens: nItens,
+      divergencia: nResumo !== nItens ? 'SIM' : 'NÃO',
+      fonte: nResumo > 0 ? 'ClickUp' : 'Sem payload'
+    });
+  });
+  var resumoGeral = {
+    total: resultados.length,
+    com_divergencia: resultados.filter(function(x){ return x.divergencia === 'SIM'; }).length,
+    sem_divergencia: resultados.filter(function(x){ return x.divergencia === 'NÃO'; }).length
+  };
+  console.log('[QA FASES] Resumo:', resumoGeral);
+  if (resultados.length) console.table(resultados.slice(0, 200));
+  return { resumo: resumoGeral, itens: resultados };
+}
+window.executarTesteQualidadeFases = function(filtroCliente){
+  return executarTesteQualidadeFases(DATA.projetos || [], filtroCliente || '');
+};
 
 function _limparJsonp(cb) {
   try { delete window[cb]; } catch(e){}
@@ -2992,6 +3037,7 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     }
     runProjectLinkAudit(DATA.projetos);
     executarAuditoriaResumoProjetos(DATA.projetos);
+    executarTesteQualidadeFases(DATA.projetos);
   } catch (error) {
     console.error('[INIT] Erro ao consolidar/renderizar carga principal:', error);
     DATA.projetos = lerDadosPlanilhaConsolidados(DATA.projetos).projetos;
