@@ -891,6 +891,98 @@ function normalizarEstruturaProjeto(dadosBrutos) {
   });
   return estrutura;
 }
+function identificarFases(dadosBrutos) {
+  var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
+  var fases = [];
+  function addFase(nome, id) {
+    var n = String(nome || '').trim();
+    if (!n) return;
+    if (!fases.some(function(f){ return f.nome === n; })) fases.push({ nome: n, id: id || '' });
+  }
+  itens.forEach(function(it){
+    addFase(it && (it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || it.section_name), it && (it.fase_id || it.list_id));
+  });
+  if (!fases.length && dadosBrutos && dadosBrutos.fase_nome) addFase(dadosBrutos.fase_nome, '');
+  return fases;
+}
+function identificarTasks(dadosBrutos, fases) {
+  var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
+  var vistos = {};
+  var tasks = [];
+  itens.forEach(function(it){
+    if (!it || isHeaderProjetoItem(it) || isMilestoneProjetoItem(it)) return;
+    var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || (fases[0] && fases[0].nome) || '';
+    var id = String(it.id || it.task_id || it.uuid || '');
+    var nome = String(it.nome || it.name || '').trim();
+    var chave = (id || nome) + '|' + faseNome + '|task';
+    if (!chave || vistos[chave]) return;
+    vistos[chave] = true;
+    var concluida = statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status));
+    tasks.push({
+      id: id,
+      nome: nome || '(sem nome)',
+      fase_nome: faseNome,
+      tipo_normalizado: 'task',
+      concluida: concluida,
+      pendente: !concluida,
+      entra_no_resumo: true, // política: task pai e subtarefa entram; deduplicação por chave evita duplicidade técnica.
+      origem: 'clickup',
+      status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
+    });
+  });
+  return tasks;
+}
+function identificarMarcos(dadosBrutos, fases) {
+  var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
+  var vistos = {};
+  var marcos = [];
+  itens.forEach(function(it){
+    if (!it || !isMilestoneProjetoItem(it)) return;
+    var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || (fases[0] && fases[0].nome) || '';
+    var id = String(it.id || it.task_id || it.uuid || '');
+    var nome = String(it.nome || it.name || '').trim();
+    var chave = (id || nome) + '|' + faseNome + '|marco';
+    if (!chave || vistos[chave]) return;
+    vistos[chave] = true;
+    var concluido = statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status));
+    marcos.push({
+      id: id,
+      nome: nome || '(sem nome)',
+      fase_nome: faseNome,
+      tipo_normalizado: 'marco',
+      concluido: concluido,
+      pendente: !concluido,
+      entra_no_resumo: true,
+      origem: 'clickup',
+      status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
+    });
+  });
+  return marcos;
+}
+function calcularResumoExecutivo(fases, tasks, marcos) {
+  var tasksConsideradas = (tasks || []).filter(function(t){ return t.entra_no_resumo; });
+  var marcosConsiderados = (marcos || []).filter(function(m){ return m.entra_no_resumo; });
+  var tasksConcluidas = tasksConsideradas.filter(function(t){ return t.concluida; }).length;
+  var tasksPendentes = tasksConsideradas.filter(function(t){ return !t.concluida; }).length;
+  var marcosConcluidos = marcosConsiderados.filter(function(m){ return m.concluido; }).length;
+  var marcosPendentes = marcosConsiderados.filter(function(m){ return !m.concluido; }).length;
+  var totalItens = tasksConsideradas.length + marcosConsiderados.length;
+  var totalConcluidos = tasksConcluidas + marcosConcluidos;
+  return {
+    fases_total: (fases || []).length,
+    tasks_total: tasksConsideradas.length,
+    tasks_concluidas: tasksConcluidas,
+    tasks_pendentes: tasksPendentes,
+    marcos_total: marcosConsiderados.length,
+    marcos_concluidos: marcosConcluidos,
+    marcos_pendentes: marcosPendentes,
+    progresso: totalItens > 0 ? Math.round((totalConcluidos / totalItens) * 100) : 0,
+    total_itens: totalItens
+  };
+}
+function renderResumoExecutivo(resumo, p) {
+  return renderResumoProjeto(resumo, p);
+}
 function calcularResumoProjeto(estrutura) {
   var totalTasks = estrutura.tasks.length;
   var totalMarcos = estrutura.marcos.length;
@@ -1046,15 +1138,16 @@ function montarResumoProjeto(projetoBruto) {
 }
 function montarResumoClickup(projetoBruto) {
   var bruto = coletarDadosBrutosProjeto(projetoBruto || {});
-  var estrutura = normalizarEstruturaProjeto(bruto);
-  var resumo = calcularResumoProjeto(estrutura);
-  var calc = calcularProgressoProjeto(resumo);
+  var fases = identificarFases(bruto);
+  var tasks = identificarTasks(bruto, fases);
+  var marcos = identificarMarcos(bruto, fases);
+  var resumo = calcularResumoExecutivo(fases, tasks, marcos);
   return {
     indisponivel: (resumo.tasks_total + resumo.marcos_total + resumo.fases_total) === 0,
-    cliente: estrutura.cliente,
-    fases: estrutura.fases,
-    tasks: estrutura.tasks,
-    marcos: estrutura.marcos,
+    cliente: bruto.projeto_nome || projetoBruto.cliente || '',
+    fases: fases,
+    tasks: tasks,
+    marcos: marcos,
     fases_total: resumo.fases_total,
     tasks_total: resumo.tasks_total,
     tasks_concluidas: resumo.tasks_concluidas,
@@ -1062,8 +1155,14 @@ function montarResumoClickup(projetoBruto) {
     marcos_total: resumo.marcos_total,
     marcos_concluidos: resumo.marcos_concluidos,
     marcos_pendentes: resumo.marcos_pendentes,
-    progresso: calc.progresso,
-    total_itens: calc.total_itens,
+    progresso: resumo.progresso,
+    total_itens: resumo.total_itens,
+    debug: {
+      fases_encontradas: fases,
+      tasks_consideradas: tasks,
+      marcos_considerados: marcos,
+      resumo_final: resumo
+    },
     fonte: 'clickup'
   };
 }
@@ -1208,7 +1307,7 @@ function buildGerencialBase(p) {
 function buildGerencialProjeto(p) {
   if (temResumoEstrutural(p)) {
     try {
-      return renderResumoProjeto(montarResumoClickup(p), p);
+      return renderResumoExecutivo(montarResumoClickup(p), p);
     } catch (error) {
       console.error('[RESUMO] Falha ao montar resumo do projeto:', (p && p.cliente) || '-', error);
     }
@@ -2993,6 +3092,8 @@ function normalizeProjetoLink(p) {
 }
 
 function _finalizarLoad(projetos, isRefresh, motivo) {
+  console.log('[CONSOLIDADO] Início');
+  console.log('[CONSOLIDADO] Projetos lidos:', Array.isArray(projetos) ? projetos.length : 0);
   console.log('[3] Finalizando carga. Motivo:', motivo);
   var nd = document.getElementById('nav-date');
   var lo = document.getElementById('load-overlay');
@@ -3012,6 +3113,25 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
     console.log('[4] Linhas processadas:', baseRaw.length);
     var baseInfo = carregarBaseProjetos(baseRaw);
     console.log('[5] Projetos normalizados:', baseInfo.projetos.length);
+    (baseInfo.projetos || []).slice(0, 25).forEach(function(projetoAtual){
+      try {
+        var resumoBruto = montarResumoClickup(projetoAtual);
+        console.log('[CONSOLIDADO] Projeto atual:', projetoAtual && (projetoAtual.cliente || projetoAtual.nome));
+        console.log('[CONSOLIDADO] Resumo bruto:', resumoBruto && resumoBruto.debug ? resumoBruto.debug : resumoBruto);
+        console.log('[CONSOLIDADO] Resumo final:', {
+          fases_total: resumoBruto.fases_total,
+          tasks_total: resumoBruto.tasks_total,
+          tasks_concluidas: resumoBruto.tasks_concluidas,
+          tasks_pendentes: resumoBruto.tasks_pendentes,
+          marcos_total: resumoBruto.marcos_total,
+          marcos_concluidos: resumoBruto.marcos_concluidos,
+          marcos_pendentes: resumoBruto.marcos_pendentes,
+          progresso: resumoBruto.progresso
+        });
+      } catch (eProjeto) {
+        console.error('[CONSOLIDADO] Erro no projeto:', projetoAtual && (projetoAtual.cliente || projetoAtual.nome), eProjeto);
+      }
+    });
     DATA.projetos = baseInfo.projetos;
     console.log('[6] Consolidado final:', DATA.projetos.length);
     console.log('[LOAD DEBUG] Qtd total consolidada de projetos (Apps Script):', DATA.projetos.length);
@@ -3035,10 +3155,12 @@ function _finalizarLoad(projetos, isRefresh, motivo) {
       else if (motivo === 'vazio') showToast('Planilha respondeu sem projetos', 'err');
       else if (motivo === 'init_error') showToast('Falha na inicialização da carga', 'err');
     }
-    runProjectLinkAudit(DATA.projetos);
-    executarAuditoriaResumoProjetos(DATA.projetos);
-    executarTesteQualidadeFases(DATA.projetos);
+    try { runProjectLinkAudit(DATA.projetos); } catch (eAudit1) { console.error('[CONSOLIDADO] Falha auditoria links:', eAudit1); }
+    try { executarAuditoriaResumoProjetos(DATA.projetos); } catch (eAudit2) { console.error('[CONSOLIDADO] Falha auditoria resumo:', eAudit2); }
+    try { executarTesteQualidadeFases(DATA.projetos); } catch (eAudit3) { console.error('[CONSOLIDADO] Falha QA fases:', eAudit3); }
   } catch (error) {
+    console.error('[CONSOLIDADO] Erro real:', error);
+    console.error('[CONSOLIDADO] Stack:', error && error.stack);
     console.error('[INIT] Erro ao consolidar/renderizar carga principal:', error);
     DATA.projetos = lerDadosPlanilhaConsolidados(DATA.projetos).projetos;
     if (nd) nd.textContent = 'Erro ao consolidar dados';
