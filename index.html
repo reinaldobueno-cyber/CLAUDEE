@@ -802,13 +802,15 @@ function isHeaderProjetoItem(it) {
 }
 function isMilestoneProjetoItem(it) {
   if (it.milestone === true || it.is_milestone === true) return true;
-  var t = normalizarTextoProjeto(it.type || it.item_type || it.tipo || '');
-  if (t.indexOf('milestone') >= 0 || t.indexOf('marco') >= 0) return true;
+  var t = normalizarTextoProjeto(it.type || it.item_type || it.tipo || it.task_type || it.custom_item_type || (it.custom_type && it.custom_type.name));
+  if (t.indexOf('milestone') >= 0 || t === 'marco' || t === 'losango' || t === 'diamond') return true;
+  var shape = normalizarTextoProjeto(it.shape || it.tipo_visual || it.visual_type || '');
+  if (shape === 'losango' || shape === 'diamond') return true;
   var campos = Array.isArray(it.custom_fields) ? it.custom_fields : [];
   return campos.some(function(cf){
     var n = normalizarTextoProjeto(cf && (cf.name || cf.nome));
     var v = normalizarTextoProjeto(cf && (cf.value || cf.valor));
-    return n.indexOf('milestone') >= 0 || n.indexOf('marco') >= 0 || v === 'marco' || v === 'milestone';
+    return (n.indexOf('milestone') >= 0 || n.indexOf('marco') >= 0) && (v === 'true' || v === '1' || v === 'sim' || v === 'marco' || v === 'milestone');
   });
 }
 function coletarDadosBrutosProjeto(proj) {
@@ -835,6 +837,10 @@ function coletarDadosBrutosProjeto(proj) {
     itensDeListas || [];
   var itens = Array.isArray(itensBrutos) ? itensBrutos : [];
   var subtarefas = Array.isArray(payload.subtasks) ? payload.subtasks : [];
+  itens.forEach(function(it){
+    if (Array.isArray(it && it.subtasks)) subtarefas = subtarefas.concat(it.subtasks);
+    if (Array.isArray(it && it.children)) subtarefas = subtarefas.concat(it.children);
+  });
   return {
     projeto_id: proj.projeto_id || proj.id || null,
     projeto_nome: proj.cliente || proj.projeto_nome || '',
@@ -909,12 +915,12 @@ function identificarTasks(dadosBrutos, fases) {
   var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
   var vistos = {};
   var tasks = [];
-  itens.forEach(function(it){
+  itens.forEach(function(it, idx){
     if (!it || isHeaderProjetoItem(it) || isMilestoneProjetoItem(it)) return;
     var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || (fases[0] && fases[0].nome) || '';
     var id = String(it.id || it.task_id || it.uuid || '');
     var nome = String(it.nome || it.name || '').trim();
-    var chave = (id || nome) + '|' + faseNome + '|task';
+    var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|task';
     if (!chave || vistos[chave]) return;
     vistos[chave] = true;
     var concluida = statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status));
@@ -922,8 +928,10 @@ function identificarTasks(dadosBrutos, fases) {
       id: id,
       nome: nome || '(sem nome)',
       fase_nome: faseNome,
+      tipo_visual: 'bolinha',
       tipo_normalizado: 'task',
       concluida: concluida,
+      status_visual: concluida ? 'verde_check' : 'pendente',
       pendente: !concluida,
       entra_no_resumo: true, // política: task pai e subtarefa entram; deduplicação por chave evita duplicidade técnica.
       origem: 'clickup',
@@ -936,12 +944,12 @@ function identificarMarcos(dadosBrutos, fases) {
   var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
   var vistos = {};
   var marcos = [];
-  itens.forEach(function(it){
+  itens.forEach(function(it, idx){
     if (!it || !isMilestoneProjetoItem(it)) return;
     var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || (fases[0] && fases[0].nome) || '';
     var id = String(it.id || it.task_id || it.uuid || '');
     var nome = String(it.nome || it.name || '').trim();
-    var chave = (id || nome) + '|' + faseNome + '|marco';
+    var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|marco';
     if (!chave || vistos[chave]) return;
     vistos[chave] = true;
     var concluido = statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status));
@@ -949,8 +957,10 @@ function identificarMarcos(dadosBrutos, fases) {
       id: id,
       nome: nome || '(sem nome)',
       fase_nome: faseNome,
+      tipo_visual: 'losango',
       tipo_normalizado: 'marco',
       concluido: concluido,
+      status_visual: concluido ? 'verde' : 'pendente',
       pendente: !concluido,
       entra_no_resumo: true,
       origem: 'clickup',
