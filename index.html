@@ -841,15 +841,31 @@ function isMilestoneProjetoItem(it) {
   });
 }
 function normalizarTipo(item) {
+  var tipo = classificarItem(item, {});
+  return tipo === 'task' ? 'task' : tipo;
+}
+function classificarItem(item, contexto) {
+  var ctx = contexto || {};
   if (!item || typeof item !== 'object') return 'ignorar';
-  if (isHeaderProjetoItem(item)) return 'fase';
-  if (isMilestoneProjetoItem(item)) return 'marco';
   var nomeNorm = normalizarTextoProjeto(obterNomeProjetoItem(item));
+  var statusNorm = normalizarTextoProjeto(obterStatusProjetoItem(item));
   var temFilhos = obterFilhosProjetoItem(item).length > 0;
-  var semStatus = !normalizarTextoProjeto(obterStatusProjetoItem(item));
-  if (temFilhos && semStatus && /(fase|phase|etapa|grupo|group|secao|section|lista|list)/.test(nomeNorm)) return 'fase';
-  if (obterNomeProjetoItem(item) || obterIdProjetoItem(item) || obterStatusProjetoItem(item)) return 'atividade';
-  return 'ignorar';
+  var temResponsavel = !!(item.assignees || item.assignee || item.responsavel || item.owner || item.watchers);
+
+  // 1) FASE (container macro)
+  if (isHeaderProjetoItem(item)) return 'fase';
+  if (/^fase\s*\d*/.test(nomeNorm)) return 'fase';
+  if (temFilhos && /(fase|phase|etapa|grupo|group|secao|section|lista|list|modulo|m[oó]dulo)/.test(nomeNorm)) return 'fase';
+
+  // 2) MARCO (milestone ou checkpoint)
+  if (isMilestoneProjetoItem(item)) return 'marco';
+  if (/(entrega|validac|kickoff|aprovac|encerrament|go live|golive|checkpoint|marco)/.test(nomeNorm)) return 'marco';
+
+  // 3) TASK (operacional executável)
+  if (/(capacita|cadastro|parametriz|configur|lancament|ajuste|movimenta|treinament|implant|execu|analise|atualiza)/.test(nomeNorm)) return 'task';
+  if (statusNorm || temResponsavel || obterIdProjetoItem(item) || nomeNorm) return 'task';
+
+  return ctx.fallback_tipo || 'ignorar';
 }
 function motivoIgnoradoItem(itemFlat) {
   var it = itemFlat && (itemFlat.raw || itemFlat);
@@ -863,7 +879,7 @@ function flattenItens(arvore, faseAtual, saida, nivel) {
   var nivelAtual = Number(nivel || 0);
   lista.forEach(function(item, idx){
     if (!item || typeof item !== 'object') return;
-    var tipo = normalizarTipo(item);
+    var tipo = classificarItem(item, { faseAtual: faseAtual || '' });
     var nome = obterNomeProjetoItem(item);
     var id = obterIdProjetoItem(item);
     var faseResolvida = obterFaseProjetoItem(item) || faseAtual || '';
@@ -882,6 +898,17 @@ function flattenItens(arvore, faseAtual, saida, nivel) {
     if (filhos.length) flattenItens(filhos, faseResolvida, out, nivelAtual + 1);
   });
   return out;
+}
+function flattenCompleto(payloadOuArvore) {
+  if (Array.isArray(payloadOuArvore)) return flattenItens(payloadOuArvore, '', []);
+  if (payloadOuArvore && typeof payloadOuArvore === 'object') {
+    var roots = [];
+    ['items','tasks','children','nodes','groups','sections','phases','lists','subtasks'].forEach(function(k){
+      if (Array.isArray(payloadOuArvore[k])) roots = roots.concat(payloadOuArvore[k]);
+    });
+    return flattenItens(roots, '', []);
+  }
+  return [];
 }
 function coletarDadosBrutosProjeto(proj) {
   var payload =
@@ -963,11 +990,11 @@ function identificarAtividades(itensFlat) {
   var vistos = {};
   var atividades = [];
   itens.forEach(function(it, idx){
-    if (!it || it.tipo_normalizado !== 'atividade') return;
+    if (!it || it.tipo_normalizado !== 'task') return;
     var faseNome = it.fase_nome || '';
     var id = String(it.id || '');
     var nome = String(it.nome || '').trim();
-    var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|atividade';
+    var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|task';
     if (!chave || vistos[chave]) return;
     vistos[chave] = true;
     var concluida = statusConcluidoProjeto(obterStatusProjetoItem(it.raw || it));
@@ -976,7 +1003,7 @@ function identificarAtividades(itensFlat) {
       nome: nome || '(sem nome)',
       fase_nome: faseNome,
       tipo_visual: 'bolinha',
-      tipo_normalizado: 'atividade',
+      tipo_normalizado: 'task',
       concluida: concluida,
       status_visual: concluida ? 'verde_check' : 'pendente',
       pendente: !concluida,
@@ -1220,6 +1247,7 @@ function montarResumoClickup(projetoBruto) {
     projeto: bruto.projeto_nome || projetoBruto.cliente || '',
     fases: fases,
     atividades: atividades,
+    tasks: atividades,
     marcos: marcos,
     ignorados: ignorados,
     resumo: {
@@ -3098,6 +3126,50 @@ window.debugResumoProjetoEstruturado = function(filtroCliente){
   var resumo = montarResumoClickup(projeto);
   console.log('[DEBUG][RESUMO ESTRUTURADO]', resumo.debug || null);
   return resumo.debug || null;
+};
+function auditarTaxonomiaGlobal(projetos, limite) {
+  var lista = Array.isArray(projetos) ? projetos : [];
+  var qtd = Math.max(1, Number(limite || 10));
+  var auditados = [];
+  var totaisAntes = { fases: 0, tasks: 0, marcos: 0 };
+  var totaisDepois = { fases: 0, tasks: 0, marcos: 0 };
+  for (var i = 0; i < lista.length && auditados.length < qtd; i++) {
+    var p = lista[i];
+    if (!p) continue;
+    var beforeTasks = Number(p.tasks_concluidas || 0) + Number(p.tasks_pendentes || 0);
+    var beforeMarcos = Number(p.marcos_concluidos || 0) + Number(p.marcos_pendentes || 0);
+    var beforeFases = Number(p.fases_total || 0);
+    var resumo = montarResumoClickup(p);
+    totaisAntes.fases += beforeFases;
+    totaisAntes.tasks += beforeTasks;
+    totaisAntes.marcos += beforeMarcos;
+    totaisDepois.fases += Number(resumo.fases_total || 0);
+    totaisDepois.tasks += Number(resumo.tasks_total || 0);
+    totaisDepois.marcos += Number(resumo.marcos_total || 0);
+    auditados.push({
+      projeto: p.cliente || '-',
+      fases: Number(resumo.fases_total || 0),
+      tasks: Number(resumo.tasks_total || 0),
+      marcos: Number(resumo.marcos_total || 0),
+      nomes_fases: (resumo.fases || []).map(function(x){ return x.nome; }),
+      nomes_tasks: (resumo.tasks || []).map(function(x){ return x.nome; }),
+      nomes_marcos: (resumo.marcos || []).map(function(x){ return x.nome; }),
+      antes: { fases: beforeFases, tasks: beforeTasks, marcos: beforeMarcos },
+      depois: { fases: Number(resumo.fases_total || 0), tasks: Number(resumo.tasks_total || 0), marcos: Number(resumo.marcos_total || 0) }
+    });
+  }
+  return {
+    total_projetos_lidos: lista.length,
+    total_auditados: auditados.length,
+    totais_antes: totaisAntes,
+    totais_depois: totaisDepois,
+    projetos: auditados
+  };
+}
+window.auditarTaxonomiaGlobal = function(limite){
+  var out = auditarTaxonomiaGlobal(DATA.projetos || [], limite || 10);
+  console.log('[AUDITORIA TAXONOMIA GLOBAL]', out);
+  return out;
 };
 function executarTesteQualidadeFases(projetos, filtro) {
   var lista = Array.isArray(projetos) ? projetos : [];
