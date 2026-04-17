@@ -800,18 +800,78 @@ function isHeaderProjetoItem(it) {
   var nome = normalizarTextoProjeto(it.nome || it.name || '');
   return /(header|section|group|phase|list|cabecalho|secao)/.test(t) || it.is_header === true || /^fase\s+\d+/.test(nome);
 }
+function obterStatusProjetoItem(it) {
+  return (it && it.status && (it.status.status || it.status.name || it.status.type || it.status.label)) || (it && it.status) || '';
+}
+function obterNomeProjetoItem(it) {
+  return String((it && (it.nome || it.name || it.title || it.task_name)) || '').trim();
+}
+function obterIdProjetoItem(it) {
+  return String((it && (it.id || it.task_id || it.uuid || it.gid || it.custom_id)) || '').trim();
+}
+function obterFaseProjetoItem(it) {
+  return String(
+    (it && (it.fase_nome || it.group_name || it.list_name || (it.list && it.list.name) || it.section_name || it.phase_name)) || ''
+  ).trim();
+}
+function obterFilhosProjetoItem(it) {
+  var filhos = [];
+  if (!it || typeof it !== 'object') return filhos;
+  ['children', 'subtasks', 'items', 'tasks', 'nodes'].forEach(function(ch){
+    if (Array.isArray(it[ch])) filhos = filhos.concat(it[ch]);
+  });
+  return filhos;
+}
 function isMilestoneProjetoItem(it) {
-  if (it.milestone === true || it.is_milestone === true) return true;
-  var t = normalizarTextoProjeto(it.type || it.item_type || it.tipo || it.task_type || it.custom_item_type || (it.custom_type && it.custom_type.name));
-  if (t.indexOf('milestone') >= 0 || t === 'marco' || t === 'losango' || t === 'diamond') return true;
+  if (!it || typeof it !== 'object') return false;
+  if (it.milestone === true || it.is_milestone === true || it.isMilestone === true) return true;
+  if (it.type_config && (it.type_config.milestone === true || it.type_config.type === 'milestone')) return true;
+  var t = normalizarTextoProjeto(it.task_type || it.custom_item_type || (it.custom_type && it.custom_type.name) || it.type || it.item_type || it.tipo);
+  if (t === 'milestone' || t === 'marco') return true;
   var shape = normalizarTextoProjeto(it.shape || it.tipo_visual || it.visual_type || '');
   if (shape === 'losango' || shape === 'diamond') return true;
   var campos = Array.isArray(it.custom_fields) ? it.custom_fields : [];
   return campos.some(function(cf){
-    var n = normalizarTextoProjeto(cf && (cf.name || cf.nome));
-    var v = normalizarTextoProjeto(cf && (cf.value || cf.valor));
-    return (n.indexOf('milestone') >= 0 || n.indexOf('marco') >= 0) && (v === 'true' || v === '1' || v === 'sim' || v === 'marco' || v === 'milestone');
+    var n = normalizarTextoProjeto(cf && (cf.name || cf.nome || cf.field_name));
+    if (n !== 'milestone' && n !== 'marco') return false;
+    var v = cf && (cf.value || cf.valor || cf.display_value || cf.text);
+    if (typeof v === 'boolean') return v;
+    var vv = normalizarTextoProjeto(v);
+    return vv === 'true' || vv === '1' || vv === 'sim' || vv === 'marco' || vv === 'milestone';
   });
+}
+function normalizarTipo(item) {
+  if (!item || typeof item !== 'object') return 'ignorar';
+  if (isHeaderProjetoItem(item)) return 'fase';
+  if (isMilestoneProjetoItem(item)) return 'marco';
+  if (obterNomeProjetoItem(item) || obterIdProjetoItem(item) || obterStatusProjetoItem(item)) return 'atividade';
+  return 'ignorar';
+}
+function flattenItens(arvore, faseAtual, saida, nivel) {
+  var lista = Array.isArray(arvore) ? arvore : [];
+  var out = Array.isArray(saida) ? saida : [];
+  var nivelAtual = Number(nivel || 0);
+  lista.forEach(function(item, idx){
+    if (!item || typeof item !== 'object') return;
+    var tipo = normalizarTipo(item);
+    var nome = obterNomeProjetoItem(item);
+    var id = obterIdProjetoItem(item);
+    var faseResolvida = obterFaseProjetoItem(item) || faseAtual || '';
+    if (tipo === 'fase') faseResolvida = nome || faseResolvida;
+    out.push({
+      id: id,
+      nome: nome || '(sem nome)',
+      tipo_bruto: item.type || item.item_type || item.task_type || '',
+      tipo_normalizado: tipo,
+      fase_nome: faseResolvida,
+      nivel: nivelAtual,
+      indice_origem: idx,
+      raw: item
+    });
+    var filhos = obterFilhosProjetoItem(item);
+    if (filhos.length) flattenItens(filhos, faseResolvida, out, nivelAtual + 1);
+  });
+  return out;
 }
 function coletarDadosBrutosProjeto(proj) {
   var payload =
@@ -835,17 +895,14 @@ function coletarDadosBrutosProjeto(proj) {
     (Array.isArray(payload.items) && payload.items) ||
     (Array.isArray(payload.tasks) && payload.tasks) ||
     itensDeListas || [];
-  var itens = Array.isArray(itensBrutos) ? itensBrutos : [];
-  var subtarefas = Array.isArray(payload.subtasks) ? payload.subtasks : [];
-  itens.forEach(function(it){
-    if (Array.isArray(it && it.subtasks)) subtarefas = subtarefas.concat(it.subtasks);
-    if (Array.isArray(it && it.children)) subtarefas = subtarefas.concat(it.children);
-  });
+  var itens = Array.isArray(itensBrutos) ? itensBrutos.slice() : [];
+  var subtarefasSoltas = Array.isArray(payload.subtasks) ? payload.subtasks : [];
+  if (subtarefasSoltas.length) itens = itens.concat(subtarefasSoltas);
   return {
     projeto_id: proj.projeto_id || proj.id || null,
     projeto_nome: proj.cliente || proj.projeto_nome || '',
     fase_nome: proj.fase_nome || proj.fase || '',
-    itens: itens.concat(subtarefas),
+    itens: itens,
     origem: 'clickup',
     raw: payload
   };
@@ -862,43 +919,14 @@ function normalizarEstruturaProjeto(dadosBrutos) {
       marcos_total: 0, marcos_concluidos: 0, marcos_pendentes: 0, progresso: 0, total_itens: 0
     }
   };
-  var itens = dadosBrutos.itens || [];
-  var parentComSub = {};
-  function registrarFase(nome, id) {
-    var faseNome = String(nome || '').trim();
-    if (!faseNome) return;
-    if (!estrutura.fases.some(function(f){ return f.nome === faseNome; })) {
-      estrutura.fases.push({id: id || '', nome: faseNome});
-    }
-  }
-  itens.forEach(function(it){
-    if (it && it.parent_id) parentComSub[it.parent_id] = true;
-    var faseNomeBruta = it && (it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || it.section_name);
-    registrarFase(faseNomeBruta, it && (it.fase_id || it.list_id));
-  });
-  itens.forEach(function(it){
-    if (!it || isHeaderProjetoItem(it)) return;
-    var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || dadosBrutos.fase_nome || '';
-    var item = {
-      id: it.id || it.task_id || '',
-      nome: it.nome || it.name || '',
-      tipo_normalizado: isMilestoneProjetoItem(it) ? 'marco' : 'task',
-      concluida: statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status)),
-      fase_nome: faseNome,
-      origem: it.origem || dadosBrutos.origem || 'clickup',
-      status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
-    };
-    registrarFase(item.fase_nome, it.fase_id || it.list_id || '');
-    // Política: subtarefas entram, mas se existem subtarefas o pai não entra para evitar dupla contagem.
-    var isParentComSub = item.id && parentComSub[item.id] === true;
-    if (isParentComSub) return;
-    if (item.tipo_normalizado === 'marco') estrutura.marcos.push(item);
-    else estrutura.tasks.push(item);
-  });
+  var itensFlat = flattenItens((dadosBrutos && dadosBrutos.itens) || [], (dadosBrutos && dadosBrutos.fase_nome) || '', []);
+  estrutura.fases = identificarFases(itensFlat);
+  estrutura.tasks = identificarAtividades(itensFlat);
+  estrutura.marcos = identificarMarcos(itensFlat);
   return estrutura;
 }
-function identificarFases(dadosBrutos) {
-  var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
+function identificarFases(itensFlat) {
+  var itens = Array.isArray(itensFlat) ? itensFlat : [];
   var fases = [];
   function addFase(nome, id) {
     var n = String(nome || '').trim();
@@ -906,53 +934,59 @@ function identificarFases(dadosBrutos) {
     if (!fases.some(function(f){ return f.nome === n; })) fases.push({ nome: n, id: id || '' });
   }
   itens.forEach(function(it){
-    addFase(it && (it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || it.section_name), it && (it.fase_id || it.list_id));
+    if (!it) return;
+    if (it.tipo_normalizado === 'fase') addFase(it.nome, it.id);
+    if (it.fase_nome) addFase(it.fase_nome, '');
   });
-  if (!fases.length && dadosBrutos && dadosBrutos.fase_nome) addFase(dadosBrutos.fase_nome, '');
   return fases;
 }
-function identificarTasks(dadosBrutos, fases) {
-  var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
+function identificarAtividades(itensFlat) {
+  var itens = Array.isArray(itensFlat) ? itensFlat : [];
   var vistos = {};
-  var tasks = [];
+  var atividades = [];
   itens.forEach(function(it, idx){
-    if (!it || isHeaderProjetoItem(it) || isMilestoneProjetoItem(it)) return;
-    var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || (fases[0] && fases[0].nome) || '';
-    var id = String(it.id || it.task_id || it.uuid || '');
-    var nome = String(it.nome || it.name || '').trim();
-    var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|task';
+    if (!it || it.tipo_normalizado !== 'atividade') return;
+    var faseNome = it.fase_nome || '';
+    var id = String(it.id || '');
+    var nome = String(it.nome || '').trim();
+    var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|atividade';
     if (!chave || vistos[chave]) return;
     vistos[chave] = true;
-    var concluida = statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status));
-    tasks.push({
+    var concluida = statusConcluidoProjeto(obterStatusProjetoItem(it.raw || it));
+    atividades.push({
       id: id,
       nome: nome || '(sem nome)',
       fase_nome: faseNome,
       tipo_visual: 'bolinha',
-      tipo_normalizado: 'task',
+      tipo_normalizado: 'atividade',
       concluida: concluida,
       status_visual: concluida ? 'verde_check' : 'pendente',
       pendente: !concluida,
-      entra_no_resumo: true, // política: task pai e subtarefa entram; deduplicação por chave evita duplicidade técnica.
+      entra_no_resumo: true,
       origem: 'clickup',
-      status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
+      status_original: obterStatusProjetoItem(it.raw || it),
+      raw: it.raw || it
     });
   });
-  return tasks;
+  return atividades;
 }
-function identificarMarcos(dadosBrutos, fases) {
-  var itens = (dadosBrutos && Array.isArray(dadosBrutos.itens)) ? dadosBrutos.itens : [];
+function identificarTasks(dadosBrutos, fases) {
+  var itensFlat = flattenItens((dadosBrutos && dadosBrutos.itens) || [], (fases[0] && fases[0].nome) || (dadosBrutos && dadosBrutos.fase_nome) || '', []);
+  return identificarAtividades(itensFlat);
+}
+function identificarMarcos(itensFlat) {
+  var itens = Array.isArray(itensFlat) ? itensFlat : [];
   var vistos = {};
   var marcos = [];
   itens.forEach(function(it, idx){
-    if (!it || !isMilestoneProjetoItem(it)) return;
-    var faseNome = it.fase_nome || it.list_name || it.group_name || (it.list && it.list.name) || (fases[0] && fases[0].nome) || '';
-    var id = String(it.id || it.task_id || it.uuid || '');
-    var nome = String(it.nome || it.name || '').trim();
+    if (!it || it.tipo_normalizado !== 'marco') return;
+    var faseNome = it.fase_nome || '';
+    var id = String(it.id || '');
+    var nome = String(it.nome || '').trim();
     var chave = (id ? ('id:' + id) : ('idx:' + idx + ':' + nome)) + '|' + faseNome + '|marco';
     if (!chave || vistos[chave]) return;
     vistos[chave] = true;
-    var concluido = statusConcluidoProjeto(it.status && (it.status.status || it.status.name || it.status));
+    var concluido = statusConcluidoProjeto(obterStatusProjetoItem(it.raw || it));
     marcos.push({
       id: id,
       nome: nome || '(sem nome)',
@@ -964,13 +998,14 @@ function identificarMarcos(dadosBrutos, fases) {
       pendente: !concluido,
       entra_no_resumo: true,
       origem: 'clickup',
-      status_original: (it.status && (it.status.status || it.status.name)) || it.status || ''
+      status_original: obterStatusProjetoItem(it.raw || it),
+      raw: it.raw || it
     });
   });
   return marcos;
 }
-function calcularResumoExecutivo(fases, tasks, marcos) {
-  var tasksConsideradas = (tasks || []).filter(function(t){ return t.entra_no_resumo; });
+function calcularResumoExecutivo(fases, atividades, marcos) {
+  var tasksConsideradas = (atividades || []).filter(function(t){ return t.entra_no_resumo; });
   var marcosConsiderados = (marcos || []).filter(function(m){ return m.entra_no_resumo; });
   var tasksConcluidas = tasksConsideradas.filter(function(t){ return t.concluida; }).length;
   var tasksPendentes = tasksConsideradas.filter(function(t){ return !t.concluida; }).length;
@@ -1148,15 +1183,44 @@ function montarResumoProjeto(projetoBruto) {
 }
 function montarResumoClickup(projetoBruto) {
   var bruto = coletarDadosBrutosProjeto(projetoBruto || {});
-  var fases = identificarFases(bruto);
-  var tasks = identificarTasks(bruto, fases);
-  var marcos = identificarMarcos(bruto, fases);
-  var resumo = calcularResumoExecutivo(fases, tasks, marcos);
+  var itensFlat = flattenItens((bruto && bruto.itens) || [], bruto && bruto.fase_nome || '', []);
+  var fases = identificarFases(itensFlat);
+  var atividades = identificarAtividades(itensFlat);
+  var marcos = identificarMarcos(itensFlat);
+  var resumo = calcularResumoExecutivo(fases, atividades, marcos);
+  var ignorados = itensFlat.filter(function(it){ return it.tipo_normalizado === 'ignorar'; }).map(function(it){
+    return {
+      id: it.id || '',
+      nome: it.nome || '(sem nome)',
+      fase_nome: it.fase_nome || '',
+      motivo: 'item_sem_identificacao_estrutural',
+      raw: it.raw
+    };
+  });
+  var debugEstruturado = {
+    projeto: bruto.projeto_nome || projetoBruto.cliente || '',
+    fases: fases,
+    atividades: atividades,
+    marcos: marcos,
+    ignorados: ignorados,
+    resumo: {
+      fases_total: resumo.fases_total,
+      atividades_total: resumo.tasks_total,
+      atividades_concluidas: resumo.tasks_concluidas,
+      atividades_pendentes: resumo.tasks_pendentes,
+      marcos_total: resumo.marcos_total,
+      marcos_concluidos: resumo.marcos_concluidos,
+      marcos_pendentes: resumo.marcos_pendentes
+    }
+  };
+  if (normalizarTextoProjeto(debugEstruturado.projeto).indexOf('fazenda arizona') >= 0) {
+    console.log('[DEBUG][CLICKUP][FAZENDA ARIZONA]', debugEstruturado);
+  }
   return {
     indisponivel: (resumo.tasks_total + resumo.marcos_total + resumo.fases_total) === 0,
     cliente: bruto.projeto_nome || projetoBruto.cliente || '',
     fases: fases,
-    tasks: tasks,
+    tasks: atividades,
     marcos: marcos,
     fases_total: resumo.fases_total,
     tasks_total: resumo.tasks_total,
@@ -1167,12 +1231,7 @@ function montarResumoClickup(projetoBruto) {
     marcos_pendentes: resumo.marcos_pendentes,
     progresso: resumo.progresso,
     total_itens: resumo.total_itens,
-    debug: {
-      fases_encontradas: fases,
-      tasks_consideradas: tasks,
-      marcos_considerados: marcos,
-      resumo_final: resumo
-    },
+    debug: debugEstruturado,
     fonte: 'clickup'
   };
 }
@@ -2980,6 +3039,19 @@ function executarAuditoriaResumoProjetos(projetos, filtro) {
 }
 window.executarAuditoriaResumoProjetos = function(filtroCliente){
   return executarAuditoriaResumoProjetos(DATA.projetos || [], filtroCliente || '');
+};
+window.debugResumoProjetoEstruturado = function(filtroCliente){
+  var termo = String(filtroCliente || '').trim().toUpperCase();
+  var lista = Array.isArray(DATA.projetos) ? DATA.projetos : [];
+  var projeto = null;
+  for (var i = 0; i < lista.length; i++) {
+    var nome = String((lista[i] && lista[i].cliente) || '').toUpperCase();
+    if (!termo || nome.indexOf(termo) >= 0) { projeto = lista[i]; break; }
+  }
+  if (!projeto) return null;
+  var resumo = montarResumoClickup(projeto);
+  console.log('[DEBUG][RESUMO ESTRUTURADO]', resumo.debug || null);
+  return resumo.debug || null;
 };
 function executarTesteQualidadeFases(projetos, filtro) {
   var lista = Array.isArray(projetos) ? projetos : [];
