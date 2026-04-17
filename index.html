@@ -3171,6 +3171,98 @@ window.auditarTaxonomiaGlobal = function(limite){
   console.log('[AUDITORIA TAXONOMIA GLOBAL]', out);
   return out;
 };
+<<<<<<< codex/remove-clickup-integration-and-update-links-cvqov2
+
+// Função utilitária para uso no console da própria página do ClickUp.
+// Regra: usa somente rows raiz reais (.cdk-drag.cu-drag-drop-item.cu-task-row)
+window.extrairClickupRootOnly = function () {
+  function limpar(v){ return String(v || '').replace(/\s+/g, ' ').trim(); }
+  function extrairNome(row){
+    return limpar(
+      (row.querySelector('.cu-task-row-main__link-text-inner') || {}).innerText ||
+      (row.querySelector('.cu-task-row-main__link-text') || {}).innerText ||
+      (row.querySelector('.cu-task-row-main') || {}).innerText ||
+      '(sem nome)'
+    );
+  }
+  function isDoneRow(row){
+    var txt = limpar(row.innerText || '');
+    return /CLOSED|DONE|100%|Conclu/i.test(txt);
+  }
+  function isMarcoRow(row){
+    var txt = limpar(row.innerText || '');
+    return /marco/i.test(txt) || !!row.querySelector('[class*="milestone"], [class*="diamond"]');
+  }
+  function classificar(nome, row){
+    if (/^fase\s*\d*/i.test(nome)) return 'fase';
+    if (isMarcoRow(row)) return 'marco';
+    return 'task';
+  }
+
+  var rows = Array.from(document.querySelectorAll('.cdk-drag.cu-drag-drop-item.cu-task-row'));
+  if (!rows.length) {
+    rows = Array.from(document.querySelectorAll('.cu-task-row')).filter(function(el){
+      var cls = String(el.className || '');
+      return el.classList.contains('cdk-drag') && !/placeholder/i.test(cls);
+    });
+  }
+
+  console.log('ROWS REAIS:', rows.length);
+  console.table(rows.map(function(row, i){
+    return {
+      i: i,
+      nome: limpar(((row.querySelector('.cu-task-row-main__link-text-inner') || {}).innerText || '')),
+      classes: String(row.className || ''),
+      subtask: String(row.className || '').indexOf('cu-task-row_offset-left') >= 0
+    };
+  }));
+
+  var itens = [];
+  var faseAtual = null;
+  rows.forEach(function(row){
+    var nome = extrairNome(row);
+    var tipo = classificar(nome, row);
+    var subtask = String(row.className || '').indexOf('cu-task-row_offset-left') >= 0;
+    var concluido = tipo === 'fase' ? null : isDoneRow(row);
+    if (tipo === 'fase') faseAtual = nome;
+    itens.push({
+      nome: nome,
+      tipo: tipo,
+      concluido: concluido,
+      subtask: subtask,
+      classes: String(row.className || '').replace(/\s+/g, ' ').trim(),
+      fase_pai: tipo === 'fase' ? nome : faseAtual,
+      origem: 'clickup_row_root'
+    });
+  });
+
+  var fases = itens.filter(function(i){ return i.tipo === 'fase'; });
+  var tasks = itens.filter(function(i){ return i.tipo === 'task'; });
+  var marcos = itens.filter(function(i){ return i.tipo === 'marco'; });
+  var resumo = {
+    fases_total: fases.length,
+    tasks_total: tasks.length,
+    tasks_concluidas: tasks.filter(function(tk){ return tk.concluido; }).length,
+    tasks_pendentes: tasks.filter(function(tk){ return !tk.concluido; }).length,
+    marcos_total: marcos.length,
+    marcos_concluidos: marcos.filter(function(mk){ return mk.concluido; }).length,
+    marcos_pendentes: marcos.filter(function(mk){ return !mk.concluido; }).length
+  };
+  console.log('FASES:', fases.length);
+  console.log('TASKS:', tasks.length);
+  console.log('MARCOS:', marcos.length);
+
+  return {
+    projeto: limpar(((document.querySelector('h1') || {}).innerText || document.title || '')),
+    url: location.href,
+    fases: fases,
+    tasks: tasks,
+    marcos: marcos,
+    resumo: resumo
+  };
+};
+=======
+>>>>>>> main
 function executarTesteQualidadeFases(projetos, filtro) {
   var lista = Array.isArray(projetos) ? projetos : [];
   var termo = String(filtro || '').trim().toUpperCase();
