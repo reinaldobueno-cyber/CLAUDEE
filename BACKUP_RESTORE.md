@@ -2,8 +2,8 @@
 
 Este repositório foi preparado para publicar a versão atual com rollback simples.
 
-## Backup criado
-- `backups/index.backup-83cce3e.html`
+## Backup recomendado (sem versionar arquivo gigante)
+Use backup por **tag** e/ou **branch** para rollback rápido.
 
 ## Como restaurar para a versão anterior (estável)
 
@@ -27,4 +27,10 @@ git tag backup-before-publish-83cce3e
 Depois faça push da tag:
 ```bash
 git push origin backup-before-publish-83cce3e
+```
+
+Opcional: crie também uma branch de backup:
+```bash
+git branch backup/pre-publish-83cce3e
+git push origin backup/pre-publish-83cce3e
 ```
